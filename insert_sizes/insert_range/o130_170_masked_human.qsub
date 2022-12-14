@@ -1,0 +1,34 @@
+#!/bin/bash
+#$ -cwd
+#$ -j y
+#$ -pe smp 1
+#$ -l h_rt=1:0:0
+#$ -l h_vmem=8G
+#$ -t 1-22
+#$ -w w
+#$ -o logs/
+
+samples=($(ls -d /data/Blizard-Rakyan/Selin/projects/MEF_SD_DEC/RRBS/Data_Novogene/X204SC22010869-Z01-F001/Human/bam_mask/*/))
+ix=$(( $SGE_TASK_ID-1 ))
+path=${samples[$ix]}
+sample=$(basename $path)
+
+echo "${sample}: Started"
+
+low="130"
+high="170"
+
+module load -s samtools/1.10
+
+echo "${sample}: Whole Genome"
+
+ifd="/data/Blizard-Rakyan/Selin/projects/MEF_SD_DEC/RRBS/Data_Novogene/X204SC22010869-Z01-F001/Human/bam_mask/${sample}/"
+ofd="/data/Blizard-Rakyan/Selin/projects/MEF_SD_DEC/RRBS/Data_Novogene/X204SC22010869-Z01-F001/Human/bam_mask_${low}_${high}/${sample}/"
+mkdir -p $ofd
+
+samtools view -h ${ifd}*.bam | \
+      awk -v l=$low -v h=$high 'substr($0,1,1)=="@" || ($9>=l && $9<=h) || ($9<=-l && $9>=-h)' | \
+        samtools view -b > ${ofd}${sample}.bam
+
+echo "${sample}: Finished"
+

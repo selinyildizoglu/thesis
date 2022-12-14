@@ -1,0 +1,24 @@
+#!/bin/bash
+#$ -cwd
+#$ -j y
+#$ -pe smp 1
+#$ -l h_rt=1:0:0
+#$ -l h_vmem=16G
+#$ -t 1-24
+#$ -w w
+#$ -o logs/
+
+samples=($(ls -d /data/Blizard-Rakyan/Selin/projects/MEF_SD_DEC/RRBS/Data_Novogene/X204SC22010869-Z01-F001/bam_mask_mouse/*/))
+ix=$(( $SGE_TASK_ID-1 ))
+path=${samples[$ix]}
+sample=$(basename $path)
+
+echo "${sample}: Started"
+
+module load gcc R/4.1.1
+
+mkdir -p /data/Blizard-Rakyan/Selin/projects/MEF_SD_DEC/RRBS/Data_Novogene/X204SC22010869-Z01-F001/locate_fragments/
+
+Rscript --vanilla locate_fragments_rrbsome_thesis.R $sample
+
+echo "${sample}: Finished"

@@ -1,0 +1,27 @@
+#!/bin/bash
+#$ -cwd
+#$ -j y
+#$ -pe smp 1
+#$ -l h_rt=1:0:0
+#$ -l h_vmem=1G
+#$ -t 1-24
+#$ -o logs/
+
+idx=$SGE_TASK_ID
+sample=$(awk "NR==${idx} {print;exit}" /data/Blizard-Rakyan/Selin/projects/MEF_SD_DEC/RRBS/Data_Novogene/X204SC22010869-Z01-F001/raw_data/libname.txt)
+
+echo "${sample}: Started"
+module load -s samtools/1.10
+
+ifd="/data/Blizard-Rakyan/Selin/projects/MEF_SD_DEC/RRBS/Data_Novogene/X204SC22010869-Z01-F001/bismark/${sample}/"
+
+ofd="/data/Blizard-Rakyan/Selin/projects/MEF_SD_DEC/RRBS/Data_Novogene/X204SC22010869-Z01-F001/insert_size_filtered/"
+mkdir -p ${ofd}
+
+is="150"
+samtools view -h ${ifd}*.bam |\
+awk -v i=$is 'substr($0,1,1)=="@" || ($9==i) || ($9==-i)' | \
+samtools view -b > ${ofd}/${sample}.bam
+
+echo "${sample}: Finished"
+

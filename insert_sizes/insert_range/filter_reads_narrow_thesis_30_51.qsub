@@ -1,0 +1,41 @@
+#!/bin/bash
+#$ -cwd
+#$ -j y
+#$ -pe smp 1
+#$ -l h_rt=1:0:0
+#$ -l h_vmem=8G
+#$ -t 1-24
+#$ -w w
+#$ -o logs/
+
+idx=$SGE_TASK_ID
+sample=$(awk "NR==${idx} {print;exit}" /data/Blizard-Rakyan/Selin/projects/MEF_SD_DEC/RRBS/Data_Novogene/X204SC22010869-Z01-F001/raw_data/libname.txt)
+
+echo "${sample}: Started"
+
+low="30"
+high="51"
+
+module load -s samtools/1.10
+
+echo "${sample}: Whole Genome"
+
+ifd="/data/Blizard-Rakyan/Selin/projects/MEF_SD_DEC/RRBS/Data_Novogene/X204SC22010869-Z01-F001/bam_mask_mouse/${sample}/"
+ofd="/data/Blizard-Rakyan/Selin/projects/MEF_SD_DEC/RRBS/Data_Novogene/X204SC22010869-Z01-F001/bam_mask_mouse_${low}_${high}/${sample}/"
+mkdir -p $ofd
+
+samtools view -h ${ifd}*.bam | \
+      awk -v l=$low -v h=$high 'substr($0,1,1)=="@" || ($9>=l && $9<=h) || ($9<=-l && $9>=-h)' | \
+        samtools view -b > ${ofd}${sample}.bam
+
+echo "${sample}: rDNA"
+
+ifd="/data/Blizard-Rakyan/Selin/projects/MEF_SD_DEC/RRBS/Data_Novogene/X204SC22010869-Z01-F001/bam_rdna/${sample}/"
+ofd="/data/Blizard-Rakyan/Selin/projects/MEF_SD_DEC/RRBS/Data_Novogene/X204SC22010869-Z01-F001/bam_rdna_${low}_${high}/${sample}/"
+mkdir -p $ofd
+
+samtools view -h ${ifd}*.bam | \
+      awk -v l=$low -v h=$high 'substr($0,1,1)=="@" || ($9>=l && $9<=h) || ($9<=-l && $9>=-h)' | \
+        samtools view -b > ${ofd}${sample}.bam
+
+echo "${sample}: Finished"

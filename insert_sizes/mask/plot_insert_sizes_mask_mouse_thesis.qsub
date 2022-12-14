@@ -1,0 +1,16 @@
+#!/bin/bash
+#$ -cwd
+#$ -j y
+#$ -pe smp 2
+#$ -l h_rt=1:0:0
+#$ -l h_vmem=16G
+#$ -o logs/
+
+echo "Started"
+
+module load gcc R/4.1.1
+
+Rscript plot_insert_sizes_mask_mouse_thesis.R
+
+echo "Finished"
+

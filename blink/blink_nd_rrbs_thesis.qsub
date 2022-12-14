@@ -1,0 +1,28 @@
+#!/bin/bash
+#$ -cwd
+#$ -j y
+#$ -pe smp 8
+#$ -l h_rt=1:0:0
+#$ -l h_vmem=4G
+#$ -t 1-24
+#$ -w w
+#$ -o logs/
+
+samples=($(ls -d /data/Blizard-Rakyan/Selin/projects/MEF_SD_DEC/RRBS/Data_Novogene/X204SC22010869-Z01-F001/bam_rdna/*/))
+ix=$(( $SGE_TASK_ID-1 ))
+path=${samples[$ix]}
+sample=$(basename $path)
+
+echo "${sample}: Started"
+
+data_fd="/data/Blizard-Rakyan/Selin/projects/MEF_SD_DEC/RRBS/Data_Novogene/X204SC22010869-Z01-F001/"
+snps_fn="/data/Blizard-Rakyan/Selin/projects/mouse_strains/WGS/data/lofreq/S15/S15.strain.vcf"
+
+/data/Blizard-Rakyan/Rakyan_Lab_Files/Analysis_Pipelines/var/blink/blink.sh \
+    -d $data_fd \
+    -s $snps_fn \
+    -S $sample \
+    -o blink_nd \
+    -v
+
+echo "${sample}: Finished"

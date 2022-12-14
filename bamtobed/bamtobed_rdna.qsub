@@ -1,0 +1,27 @@
+#!/bin/bash
+#$ -cwd
+#$ -j y
+#$ -pe smp 8
+#$ -l h_rt=1:0:0
+#$ -l h_vmem=8G
+#$ -t 1-96
+#$ -w w
+#$ -o logs/
+
+samples=($(ls -d ../../data/bam_rdna/*/))
+ix=$(( $SGE_TASK_ID-1 ))
+path=${samples[$ix]}
+sample=$(basename $path)
+
+echo "${sample}: Started"
+
+ofd="../../data/bamtobed_rdna/${sample}"
+mkdir -p $ofd && cd $ofd
+
+ofn="${sample}.bed"
+
+module load bedtools
+
+bedtools bamtobed -i ../../bam_rdna/${sample}/${sample}.bam > $ofn
+
+echo "${sample}: Finished"

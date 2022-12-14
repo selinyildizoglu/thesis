@@ -1,0 +1,31 @@
+#!/bin/bash
+#$ -cwd
+#$ -j y
+#$ -pe smp 4
+#$ -l h_rt=1:0:0
+#$ -l h_vmem=1G
+#$ -t 1-24
+#$ -w w
+#$ -o logs/
+
+samples=($(ls -d /data/Blizard-Rakyan/Selin/projects/MEF_SD_DEC/RRBS/Data_Novogene/X204SC22010869-Z01-F001/bismark/*/))
+ix=$(( $SGE_TASK_ID-1 ))
+path=${samples[$ix]}
+sample=$(basename $path)
+
+echo "${sample}: Started"
+
+mfn="/data/Blizard-Rakyan/Rakyan_Lab_Files/Genome_Annotations/Mouse/WG/RepeatMasker/mm10.rmsk.bed"
+
+ofd="/data/Blizard-Rakyan/Selin/projects/MEF_SD_DEC/RRBS/Data_Novogene/X204SC22010869-Z01-F001/bam_mask_mouse/${sample}"
+mkdir -p $ofd && cd $ofd
+ofn="${sample}.bam"
+
+ifd="/data/Blizard-Rakyan/Selin/projects/MEF_SD_DEC/RRBS/Data_Novogene/X204SC22010869-Z01-F001/bismark/${sample}/"
+ifn=$(ls ${ifd}*.bam)
+
+module load bedtools/2.28.0
+
+bedtools intersect -a $ifn -b $mfn -v  > ${sample}.bam
+
+echo "${sample}: Finished"

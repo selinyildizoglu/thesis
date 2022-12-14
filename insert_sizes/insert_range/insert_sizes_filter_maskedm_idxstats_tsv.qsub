@@ -1,0 +1,24 @@
+#!/bin/bash
+#$ -cwd
+#$ -j y
+#$ -pe smp 1
+#$ -l h_rt=1:0:0
+#$ -l h_vmem=1G
+#$ -t 1-24
+#$ -o logs/
+
+idx=$SGE_TASK_ID
+sample=$(awk "NR==${idx} {print;exit}" /data/Blizard-Rakyan/Selin/projects/MEF_SD_DEC/RRBS/Data_Novogene/X204SC22010869-Z01-F001/raw_data/libname.txt)
+
+echo "${sample}: Started"
+module load -s samtools/1.10
+
+ifd="/data/Blizard-Rakyan/Selin/projects/MEF_SD_DEC/RRBS/Data_Novogene/X204SC22010869-Z01-F001/insert_size_filtered_masked_mouse/"
+
+ofd="/data/Blizard-Rakyan/Selin/projects/MEF_SD_DEC/RRBS/Data_Novogene/X204SC22010869-Z01-F001/insert_size_filtered_masked_mouse/tsv/"
+mkdir -p ${ofd}
+
+samtools idxstats ${ifd}${sample}.bam > ${ofd}/${sample}_idxstats.tsv
+
+echo "${sample}: Finished"
+

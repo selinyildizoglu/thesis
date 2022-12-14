@@ -1,0 +1,40 @@
+#!/bin/bash
+#$ -cwd
+#$ -j y
+#$ -pe smp 8
+#$ -l h_rt=1:0:0
+#$ -l h_vmem=1G
+#$ -t 1-24
+#$ -w w
+#$ -o logs/
+
+samples=($(ls -d /data/Blizard-Rakyan/Selin/projects/MEF_SD_DEC/RRBS/Data_Novogene/X204SC22010869-Z01-F001/bam_rdna_30_51/*/))
+ix=$(( $SGE_TASK_ID-1 ))
+path=${samples[$ix]}
+sample=$(basename $path)
+
+echo "${sample}: Started"
+
+ifn="${path}${sample}.bam"
+
+data_fd="/data/Blizard-Rakyan/Selin/projects/MEF_SD_DEC/RRBS/Data_Novogene/X204SC22010869-Z01-F001/"
+ofd="${data_fd}bme_30_51/${sample}/"
+mkdir -p $ofd
+
+tfn="${ofd}${sample}.bam"
+
+module load -s samtools
+module load -s bismark
+
+samtools sort -n -@ $NSLOTS -o ${tfn} $ifn
+
+bismark_methylation_extractor -p \
+    -o $ofd \
+    --no_header \
+    --parallel $NSLOTS \
+    --merge_non_CpG \
+    --bedGraph ${tfn}
+
+rm $tfn
+
+echo "${sample}: Finished"
