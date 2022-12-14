@@ -1,0 +1,20 @@
+#!/bin/bash
+#$ -cwd
+#$ -j y
+#$ -l h_rt=1:0:0
+#$ -l h_vmem=8G
+#$ -pe smp 8
+#$ -t 1-24
+#$ -o logs/
+
+ix=$SGE_TASK_ID
+sample=$(sed -n -e "$SGE_TASK_ID p" /data/Blizard-Rakyan/Selin/projects/MEF_SD_DEC/RRBS/Data_Novogene/X204SC22010869-Z01-F001/raw_data/libname.txt)
+echo "${sample}: Started"
+ifd="/data/Blizard-Rakyan/Selin/projects/MEF_SD_DEC/RRBS/Data_Novogene/X204SC22010869-Z01-F001/raw_data/${sample}/"
+ofd="/data/Blizard-Rakyan/Selin/projects/MEF_SD_DEC/RRBS/Data_Novogene/X204SC22010869-Z01-F001/fastqc/${sample}/"
+
+mkdir -p $ofd
+
+module load fastqc
+fastqc -o $ofd -t $NSLOTS ${ifd}/*.fq.gz
+
