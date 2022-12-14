@@ -1,0 +1,537 @@
+---
+title: "Variant specific methylation analysis"
+---
+
+This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook. When you execute code within the notebook, the results appear beneath the code. 
+
+Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Cmd+Shift+Enter*. 
+
+```{r}
+
+library(readr)
+var_meth_S15 <- read_csv("/Volumes/Elements/Data_Analysis/mouse_strains/var_meth_data/blink_var_meth/S15/S15_link.csv",
+                        col_types=cols())
+View(var_meth_S15)
+
+
+
+
+
+```
+
+Add a new chunk by clicking the *Insert Chunk* button on the toolbar or by pressing *Cmd+Option+I*.
+
+When you save the notebook, an HTML file containing the code and output will be saved alongside it (click the *Preview* button or press *Cmd+Shift+K* to preview the HTML file). 
+
+The preview shows you a rendered HTML copy of the contents of the editor. Consequently, unlike *Knit*, *Preview* does not run any R code chunks. Instead, the output of the chunk when it was last run in the editor is displayed.
+
+```{r}
+library(dplyr)
+var_meth_S15 %>% 
+  filter(snp_pos == 2905, meth_pos == (3008-133+1)) %>%
+  group_by(snp_allele) %>%
+  summarise(meth = mean(meth_state=="+"))
+  
+```
+```{r}
+#show methylation level for all snp positions and CpG positions (meth_pos)
+#mean methylation across all CpG sites associated with every snp position 
+#data table for all mice (importing)
+#think about which graphs to generate 
+```
+```{r}
+library(dplyr)
+var_meth_S15 %>%
+  filter(snp_pos, meth_pos) %>%
+  group_by(snp_allele) %>%
+  summarise(meth = mean(meth_state=="+"))
+
+```
+```{r}
+library(dplyr)
+var_meth_S15 %>%
+  filter(snp_pos, meth_pos) %>%
+  group_by(snp_pos, snp_allele) %>%
+  summarise(meth = mean(meth_state=="+"))
+
+```
+
+```{r}
+library(dplyr)
+var_meth_S15 %>%
+  filter(snp_pos, meth_pos) %>%
+  group_by(snp_pos, snp_allele, meth_pos) %>%
+  summarise(meth = mean(meth_state=="+"))
+```
+```{r}
+
+common_path = "/Volumes/Elements/Data_Analysis/mouse_strains/var_meth_data/blink_var_meth/"
+sub_dirs = list.files(common_path)
+sub_dirs
+read_csv(sub_dirs(pattern = "_link.csv"))
+```
+```{r}
+
+common_path = "/Volumes/Elements/Data_Analysis/mousestrains/var_meth_data/blink_var_meth/"
+sub_dirs = list.files(common_path)
+lapply(X=sub_dirs, FUN=read_csv(mousestrains/var_meth_data/blink_var_meth/(sub_dirs)/(sub_dirs)_link.csv))
+
+```
+```{r}
+#Extract files from multiple folders, and sets end of file name “S1” etc (which is stored in “sub_dirs”) as extra column/heading name
+library(dplyr)
+common_path = "/Volumes/Elements/Data_Analysis/mouse_strains/var_meth_data/blink_var_meth/"
+sub_dirs = list.files(common_path)
+lapply(
+    X=sub_dirs,
+    FUN=function(x){
+        read_csv(
+           paste0(common_path, x, '/', x, '_link.csv'),
+            col_types=cols()) %>%
+            mutate(sample=x)})
+```
+
+```{r}
+
+
+#bind row - next step 
+bind_rows(lapply(
+    X=sub_dirs,
+    FUN=function(x){
+        read_csv(
+           paste0(common_path, x, '/', x, '_link.csv'),
+            col_types=cols()) %>%
+            mutate(sample=x)}))
+
+#the below stores the bind_rows(lapply(... output as "var_meth_table". then views it in a tab. 
+var_meth_table <- bind_rows(lapply(
+    X=sub_dirs,
+    FUN=function(x){read_csv(
+        paste0(common_path, x, '/', x, '_link.csv'),
+            col_types=cols()) %>%
+            mutate(sample=x)}))
+View(var_meth_table)
+
+#use uppercase for "View".
+```
+--
+```{r}
+library(dplyr)
+meth_level <- var_meth_table %>%
+  filter(snp_pos, meth_pos) %>%
+  group_by(snp_pos, snp_allele, meth_pos) %>%
+  summarise(meth = mean(meth_state=="+"))
+```
+
+
+```{r}
+#20.7.21 
+
+meth_level_CpG <- var_meth_table %>%
+  group_by(sample, snp_pos, snp_allele, meth_pos) %>%
+  summarise(meth = mean(meth_state=="+"))
+View(meth_level_CpG)
+
+#sample, snp position and allele. average across all CpG sites #20.7.21
+
+meth_level_snp <- meth_level_CpG %>%
+  group_by(sample, snp_pos, snp_allele) %>%
+  summarise(meth = mean(meth))
+View(meth_level_snp)
+```
+
+
+```{r}
+
+#Extract files from multiple folders, and sets end of file name “S1” etc (which is stored in “sub_dirs”) as extra column/heading name
+common_path2 = "/Volumes/Elements/Data_Analysis/mouse_strains/var_meth_data/blink_var_meth_2/"
+sub_dirs2 = list.files(common_path2)
+sub_dirs2
+lapply(
+    X=sub_dirs2,
+    FUN=function(x){
+        read_csv(
+           paste0(common_path2, x, '/', x, '_snps.csv'),
+            col_types=cols()) %>%
+            mutate(sample=x)})
+```
+
+
+```{r}
+#bind row - next step 
+snps_table <- bind_rows(lapply(
+    X=sub_dirs2,
+    FUN=function(x){
+        read_csv(
+           paste0(common_path2, x, '/', x, '_snps.csv'),
+            col_types=cols()) %>%
+            mutate(sample=x)}))
+    View(snps_table)
+```
+```{r}
+#ref_prop_exp is WGS, ref_prop_obs is WGBS
+library(ggplot2)
+ggplot(snps_table) +
+  aes(x = ref_prop_obs, y = ref_prop_exp) +
+  labs(x="RAF in WGBS", y="RAF in WGS") +
+  geom_point(colour = "#0c4c8a") +
+  theme_minimal()
+```
+
+cor(snps_table$ref_prop_exp, snps_table$ref_prop_obs)
+
+"/Volumes/Elements/Data_Analysis"
+
+```{r}
+
+snps_table <- bind_rows(lapply(
+    X=sub_dirs2,
+    FUN=function(x){
+        read_csv(
+           paste0(common_path2, x, '/', x, '_snps.csv'),
+            col_types=cols()) %>%
+            mutate(sample=x, alt_prop_exp = 1 - ref_prop_exp,alt_prop_obs = 1 - ref_prop_obs)})) 
+    View(snps_table)
+```
+library(readr)
+samples_ID_strain <- read_csv("../var_meth_data/samples_ID_strain1.csv",
+                        col_types=cols())
+View(samples_ID_strain)
+```{r}
+#ref_prop_exp is WGS, ref_prop_obs is WGBS
+mutate(snps_table, alt_prop_exp = 1 - snps_table$ref_prop_exp)
+mutate(snps_table, alt_prop_obs = 1 - snps_table$ref_prop_obs)
+```
+
+snps_table_strain <- inner_join(samples_ID_strain, snps_table, by = "sample")
+View(snps_table_strain)
+```{r}
+library(readr)
+samples_ID_strain_mouseno <- read_csv("/Volumes/Elements/Data_Analysis/mouse_strains/var_meth_data/samples_ID_strain_mouseno.csv",
+                        col_types=cols())
+View(samples_ID_strain_mouseno)
+
+library(dplyr)
+snps_table_strain <- inner_join(samples_ID_strain_mouseno, snps_table, by = "sample")
+View(snps_table_strain)
+```
+```{r}
+#ref_prop_exp is WGS, ref_prop_obs is WGBS
+mutate(snps_table, alt_prop_exp = 1 - snps_table$ref_prop_exp)
+mutate(snps_table, alt_prop_obs = 1 - snps_table$ref_prop_obs)
+
+
+library(ggplot2)
+
+ggplot(snps_table_strain) +
+  aes(x = alt_prop_obs, y = alt_prop_exp) +
+  labs(x="AAF in WGBS", y="AAF in WGS") +
+  geom_point(colour = "#0c4c8a") +
+  theme_minimal()
+
+```
+```{r}
+fig1 <- ggplot(snps_table_strain) +
+  aes(x = alt_prop_obs, y = alt_prop_exp) +
+  labs(x="AAF in WGBS", y="AAF in WGS") +
+  theme_minimal()
+
+fig1 + facet_grid(vars(snps_table_strain$strain), vars(snps_table_strain$mouse_number), scales = "free") +
+   geom_point(aes(colour = factor(strain)), alpha = 0.5) +
+  scale_y_continuous(breaks=c(0, 0.5, 1), labels =c('', 0.5, 1)) +
+  scale_x_continuous(breaks =c(0, 0.5, 1), labels =c('', 0.5, 1))
+
+
+
+fig1corr <- cor.test(snps_table_strain$alt_prop_obs, snps_table_strain$alt_prop_exp)
+fig1corr
+
+library(ggpubr)
+fig1 <- ggplot(snps_table_strain) +
+  aes(x = alt_prop_obs, y = alt_prop_exp) +
+  labs(x="AAF in WGBS", y="AAF in WGS") +
+  theme_minimal()
+
+fig1 + facet_grid(vars(snps_table_strain$strain), vars(snps_table_strain$mouse_number), scales = "free") +
+   geom_point(aes(colour = strain), alpha = 0.5) +
+  scale_y_continuous(breaks=c(0, 0.5, 1), labels =c('', 0.5, 1)) +
+  scale_x_continuous(breaks =c(0, 0.5, 1), labels =c('', 0.5, 1))
+
+
+#final plot 
+fig1complete <- fig1 + facet_grid(vars(snps_table_strain$strain), vars(snps_table_strain$mouse_number), scales = "free") +
+   geom_point(aes(colour = strain), alpha = 0.5) +
+  scale_y_continuous(breaks=c(0, 0.5, 1), labels =c('', 0.5, 1)) +
+  scale_x_continuous(breaks =c(0, 0.5, 1), labels =c('', 0.5, 1))
+fig1complete
+```
+```{r}
+#ref: library(dplyr)
+#library(dplyr)
+#var_meth_S15 %>% 
+  #filter(snp_pos == 2905, meth_pos == (3008-133+1)) %>%
+  #group_by(snp_allele) %>%
+  #summarise(meth = mean(meth_state=="+"))
+
+library(dplyr)
+snps_table_strain %>%
+  filter (sample == "S1") %>%
+cor.test(snps_table_strain$alt_prop_obs, snps_table_strain$alt_prop_exp)
+#cannnot include cor.test in pipe
+  
+```
+
+```{r}
+fig1complete
+```
+```{r}
+#final plot with statistical result 
+library(ggpubr)
+fig1complete + stat_cor(method = "pearson", size = 2)
+
+```
+
+```{r}
+fig2 <- ggplot(snps_table_strain) +
+  aes(x = alt_prop_obs, y = alt_prop_exp) +
+  labs(x="AAF in WGBS", y="AAF in WGS") +
+  theme_minimal()
+fig2
+```
+
+```{r}
+snps_table_strain_meth <- inner_join(snps_table_strain, meth_level, by = "sample")
+View(snps_table_strain_meth)
+```
+
+```{r}
+#20.7.21 
+
+meth_level_CpG <- var_meth_table %>%
+  group_by(sample, snp_pos, snp_allele, meth_pos) %>%
+  summarise(meth = mean(meth_state=="+"))
+View(meth_level_CpG)
+
+#sample, snp position and allele. average across all CpG sites #20.7.21
+
+meth_level_snp <- meth_level_CpG %>%
+  group_by(sample, snp_pos, snp_allele) %>%
+  summarise(meth = mean(meth))
+View(meth_level_snp)
+
+
+meth_level_snp_strain <- inner_join(meth_level_snp, samples_ID_strain_mouseno, by = "sample")
+View(meth_level_snp_strain)
+```
+```{r}
+library(ggplot2)
+fig2 <- ggplot(meth_level_snp_strain) +
+  aes(x = factor(snp_pos), y = meth) +
+  geom_point(aes(colour = snp_allele)) +
+  labs(x="SNP position in rDNA unit", y="Methylation level") +
+  theme_minimal()
+  
+  fig2 + facet_grid(row = vars(strain), scales = "free")
+  
+``` 
+for each mouse and snp, difference in methylation across all CpG sites, so only kept the snp_positions for whcih there was a significant difference in methylation level
+```{r}
+library(dplyr)
+var_meth_S15 %>% 
+  filter(snp_pos == 2905, meth_pos == (3008-133+1)) %>%
+  group_by(snp_allele) %>%
+  summarise(meth = mean(meth_state=="+"))
+
+library(dplyr)
+meth_level_snp_strain %>% 
+  group_by(mouse_number, snp_pos, meth)
+  
+```
+idea: maybe add another column, for methylation difference? 
+```{r}
+meth_level_CpG_strain <- inner_join(meth_level_CpG, samples_ID_strain_mouseno, by = "sample")
+View(meth_level_CpG_strain)
+```
+Fran's code:
+```{r}
+#adapted for my own table
+meth_level_CpG_strain %>%
+    group_by(sample, strain, ID, snp_pos) %>%
+    mutate(group=if_else(snp_allele==min(snp_allele), 'm', 'M')) %>%
+    do(w = wilcox.test(meth ~ group, data=., exact=FALSE)) %>%
+    summarise(sample, strain, ID, snp_pos, pval=w$p.value, .groups='drop') %>%
+    group_by(sample) %>%
+    mutate(padj=p.adjust(pval, method = 'fdr')) %>%
+    group_by(strain, snp_pos) %>%
+    summarise(num_sig=sum(padj<0.01), num_samples=n()) %>%
+    filter(num_samples>=3, num_sig>num_samples/2)
+
+
+```
+```{r}
+#not adapted
+strains_wgbs_raw %>%
+  group_by(sample, snp_pos, snp_allele, meth_pos) %>%
+  filter(n()>=10) %>%
+  group_by(sample, strain, id, snp_pos, meth_pos) %>%
+  filter(n()>=50, n_distinct(snp_allele)>1) %>%
+  group_by(sample, strain, id, snp_pos, snp_allele, meth_pos) %>%
+  summarise(meth=sum(meth_state=='+')/n(), .groups='drop')
+
+```
+need to edit var_meth_table via innerjoin to include strain and ID etc. 
+```{r}
+var_meth_table_strain <- inner_join(var_meth_table, samples_ID_strain_mouseno, by = "sample")
+View(var_meth_table_strain)
+
+#did this wrong first time, so just use var_meth_table from now on
+```
+```{r}
+var_meth_table_strain %>%
+  group_by(sample, snp_pos, snp_allele, meth_pos) %>%
+  filter(n()>=10) %>%
+  group_by(sample, strain, ID, snp_pos, meth_pos) %>%
+  filter(n()>=50, n_distinct(snp_allele)>1) %>%
+  group_by(sample, strain, ID, snp_pos, snp_allele, meth_pos) %>%
+  summarise(meth = mean(meth_state=="+"), .groups='drop')
+
+```
+```{r}
+packageVersion("tibble")
+```
+num_sig is number of mice in which thaat paarticullar postion is significant as epiallele. num_samples is the number of samples for which we can actually analyse that position. so in the first row we have 4 mice with significant allele-specific methylation differences out of 6. "why wouldn't we be able to analyse methylation at thhat position in all mice?" answer: not enough coverage
+```{r}
+var_meth_table_filtered <- var_meth_table_strain %>%
+  group_by(sample, snp_pos, snp_allele, meth_pos) %>%
+  filter(n()>=10) %>%
+  group_by(sample, strain, ID, snp_pos, meth_pos) %>%
+  filter(n()>=50, n_distinct(snp_allele)>1) %>%
+  group_by(sample, strain, ID, snp_pos, snp_allele, meth_pos) %>%
+  summarise(meth = mean(meth_state=="+"), .groups='drop')
+  View(var_meth_table_filtered)
+```
+```{r}
+var_meth_sig <- var_meth_table_filtered %>%
+    group_by(sample, strain, ID, snp_pos) %>%
+    mutate(group=if_else(snp_allele==min(snp_allele), 'm', 'M')) %>%
+    do(w = wilcox.test(meth ~ group, data=., exact=FALSE)) %>%
+    summarise(sample, strain, ID, snp_pos, pval=w$p.value, .groups='drop') %>%
+    group_by(sample) %>%
+    mutate(padj=p.adjust(pval, method = 'fdr')) %>%
+    group_by(strain, snp_pos) %>%
+    summarise(num_sig=sum(padj<0.01), num_samples=n()) %>%
+    filter(num_samples>=3, num_sig>num_samples/2)
+  View(var_meth_sig)
+
+```
+take var_meth_sig and try different filters till you get all strains. 
+```{r}
+var_meth_sig_fil6 <- var_meth_sig %>% filter(num_sig == 6)
+View(var_meth_sig_fil6)
+```
+```{r}
+var_meth_sig_fil456 <- var_meth_sig %>% filter(num_sig >= 4)
+View(var_meth_sig_fil456)
+
+var_meth_sig_fil56 <- var_meth_sig %>% filter(num_sig >= 5)
+View(var_meth_sig_fil56)
+```
+next step: get all the snp positions from this table and set as x axis for the methylation level graph. 
+```{r}
+
+var_meth_fil_meth <- var_meth_table_filtered %>% 
+  group_by(strain, ID, snp_pos, snp_allele) %>%
+  summarise(meth = mean(meth))
+View(var_meth_fil_meth)
+
+var_meth_fig2_table <- inner_join(var_meth_fil_meth, var_meth_sig_fil456, by = ('snp_pos'))
+View(var_meth_fig2_table)
+
+#problem wiith var_meth_fig2_table - two columns for snp_pos or strain
+
+library(ggplot2)
+fig2 <- ggplot(var_meth_sig_fil456meth) +
+  aes(x = factor(snp_pos), y = meth) +
+  geom_point(aes(colour = snp_allele)) +
+  labs(x="SNP position in rDNA unit", y="Methylation level") +
+  theme_minimal()
+  
+  fig2 + facet_grid(row = vars(strain), scales = "free")
+  
+```
+try to edit this by including group by ID - see what happens, save under different table name
+```{r}
+var_meth_sigID <- var_meth_table_filtered %>%
+    group_by(sample, strain, ID, snp_pos) %>%
+    mutate(group=if_else(snp_allele==min(snp_allele), 'm', 'M')) %>%
+    do(w = wilcox.test(meth ~ group, data=., exact=FALSE)) %>%
+    summarise(sample, strain, ID, snp_pos, pval=w$p.value, .groups='drop') %>%
+    group_by(sample) %>%
+    mutate(padj=p.adjust(pval, method = 'fdr')) %>%
+    group_by(strain, ID, snp_pos) %>%
+    summarise(num_sig=sum(padj<0.01), num_samples=n()) %>%
+    filter(num_samples>=3, num_sig>num_samples/2)
+  View(var_meth_sigID)
+  #this returned no data
+```
+join by two columns
+```{r}
+var_meth_fig2_table <- inner_join(var_meth_fil_meth, var_meth_sig, by = c('strain','snp_pos'))
+View(var_meth_fig2_table)
+```
+now try the graph using var_meth_fig2_table
+```{r}
+library(ggplot2)
+fig2 <- ggplot(var_meth_fig2_table) +
+  aes(x = factor(snp_pos), y = meth) +
+  geom_point(aes(colour = snp_allele)) +
+  labs(x="SNP position in rDNA unit", y="Methylation level") +
+  theme_minimal()
+  
+  fig2 + facet_grid(row = vars(strain), scales = "free")
+```
+rotate numbers
+```{r}
+library(ggplot2)
+fig2 <- ggplot(var_meth_fig2_table) +
+  aes(x = as.factor(snp_pos), y = meth) +
+  geom_point(aes(colour = snp_allele)) +
+  labs(x="SNP position in rDNA unit", y="Methylation level") +
+  scale_y_continuous(breaks=c(0, 0.2, 0.4, 0.6, 0.8, 1), labels =c('', 0.2, 0.4, 0.6, 0.8, 1)) +
+  theme_minimal() +
+  theme(axis.text.x=element_text(angle=90))+
+
+ 
+  fig2 + facet_grid(rows = vars(strain))
+```
+3008 is -1, 3009 is 1. if position is below or equal to 3008, subtract 3009, if it is above 3008 subtract 3008. 
+```{r}
+
+
+library(dplyr)
+var_meth_fig2_adjtable <- var_meth_fig2_table %>%
+mutate(adj_snp_pos=if_else(snp_pos<= 3008, snp_pos-3009, snp_pos-3008))
+View(var_meth_fig2_adjtable)
+
+#okay this worked
+```
+now re-do the graph - below works 
+```{r}
+library(ggplot2)
+fig2 <- ggplot(var_meth_fig2_adjtable) +
+  aes(x = as.factor(adj_snp_pos), y = meth) +
+  geom_point(aes(colour = snp_allele), size = 1, alpha = 0.5, position = position_dodge(width = 0.9)) +
+  labs(x="SNP position in rDNA unit", y="Methylation level") +
+  scale_y_continuous(breaks=c(0, 0.2, 0.4, 0.6, 0.8, 1), labels =c('', 0.2, 0.4, 0.6, 0.8, 1)) +
+  theme_minimal() +
+  theme(axis.text.x=element_text(angle=90, size = 5)) +
+  scale_color_discrete('Allele')
+ 
+
+  fig2 + facet_grid(rows = vars(strain))
+```
+
+position = position_dodge(width = 0.90
+
+
+

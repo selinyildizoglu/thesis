@@ -1,0 +1,1301 @@
+---
+title: "Figure 3.- Stress and Ageing"
+---
+
+## 0.- Setup
+
+```{r, echo=F, message=F}
+the_data_fd <- '../../data/'
+source('../../scripts/setup.R')
+source('../../scripts/haplotypes.R')
+```
+
+
+## 1.- Stress
+
+### 1.1.- Holland
+
+```{r}
+holland_fd <- 'public/stress/holland/'
+```
+
+```{r}
+holland_metadata <- read_data('metadata/sra_metadata.txt',
+                              fd=holland_fd,
+                              the_data_fd=the_data_fd) %>%
+  select(Run, BioSample, Diet=diet)
+```
+
+
+```{r}
+holland_comparisons <- holland_metadata %>%
+  pull(Diet) %>% unique() %>% combn(2) %>%
+  as.data.frame() %>% as.list() %>% unname()
+```
+
+```{r}
+holland_raw <- read_blink(holland_fd,
+                          the_data_fd=the_data_fd) %>%
+  inner_join(haplotypes_mef %>%
+               mutate(haplotype=adjust_haplo(haplotype)),
+             by=c('snp_pos'='pos_ref',
+                  'snp_allele'='allele')) %>%
+  inner_join(holland_metadata,
+             by=c('sample'='Run')) %>%
+  select(-sample) %>%
+  rename(sample=BioSample)
+```
+
+```{r}
+holland_meth_ov <- holland_raw %>%
+  group_by(sample, snp_pos, snp_allele, meth_pos, haplotype) %>%
+  filter(n()>=10) %>%
+  group_by(sample, snp_pos, meth_pos, Diet) %>%
+  filter(n()>=50, n_distinct(haplotype)>1) %>%
+  group_by(sample, haplotype, Diet) %>%
+  summarise(meth=sum(meth_state=='+')/n(),
+            .groups='drop')
+```
+
+```{r}
+holland_meth_ata <- holland_raw %>%
+  group_by(sample, snp_pos, snp_allele, meth_pos, haplotype) %>%
+  filter(n()>=10) %>%
+  group_by(sample, snp_pos, meth_pos, Diet) %>%
+  filter(n()>=50, n_distinct(haplotype)>1) %>%
+  filter(snp_pos==6832) %>%
+  group_by(sample, haplotype, Diet) %>%
+  summarise(meth=sum(meth_state=='+')/n(),
+            .groups='drop')
+```
+
+### 1.2.- Cannon
+
+```{r}
+cannon_fd <- 'public/stress/cannon/'
+```
+
+```{r}
+cannon_metadata <- read_data('metadata/sra_metadata.txt',
+                             fd=cannon_fd,
+                             the_data_fd=the_data_fd) %>%
+  select(Run, BioSample, maternal_diet, adult_diet) %>%
+  group_by(Run, BioSample) %>%
+  mutate(across(ends_with('diet'),
+                function(x) case_when(x=='Low fat' ~ 'LF',
+                                      x=='High fat' ~'HF',
+                                      TRUE ~ ''))) %>%
+  mutate(diet=paste(maternal_diet, adult_diet, sep=' - '))
+```
+
+```{r}
+cannon_raw <- read_blink(cannon_fd, the_data_fd=the_data_fd) %>%
+  inner_join(haplotypes_mef %>%
+               mutate(haplotype=adjust_haplo(haplotype)),
+             by=c('snp_pos'='pos_ref',
+                  'snp_allele'='allele')) %>%
+  inner_join(cannon_metadata,
+             by=c('sample'='Run')) %>%
+  select(-sample) %>%
+  rename(sample=BioSample)
+```
+
+```{r}
+cannon_meth_ov <- cannon_raw %>%
+  group_by(sample, snp_pos, snp_allele, meth_pos, haplotype) %>%
+  filter(n()>=10) %>%
+  group_by(sample, snp_pos, meth_pos, diet) %>%
+  filter(n()>=50, n_distinct(haplotype)>1) %>%
+  group_by(sample, haplotype, diet) %>%
+  summarise(meth=sum(meth_state=='+')/n(),
+            .groups='drop')
+```
+
+```{r}
+cannon_meth_ata <- cannon_raw %>%
+  group_by(sample, snp_pos, snp_allele, meth_pos, haplotype) %>%
+  filter(n()>=10) %>%
+  group_by(sample, snp_pos, meth_pos, diet) %>%
+  filter(n()>=50, n_distinct(haplotype)>1) %>%
+  filter(snp_pos==6832) %>%
+  group_by(sample, haplotype, diet) %>%
+  summarise(meth=sum(meth_state=='+')/n(),
+            .groups='drop')
+```
+
+
+#### 1.2.1.- In-Utero
+
+```{r}
+cannon_comparisons_iu <- list(
+  c("HF - LF", "HF - HF"),
+  c("LF - LF", "HF - LF"),
+  c("LF - LF", "HF - HF"))
+```
+
+#### 1.2.2.- Post-Weaning
+
+```{r}
+cannon_comparisons_pw <- list(
+  c("LF - LF", "LF - HF"))
+```
+
+```{r}
+cannon_meth_ov %>%
+    filter(! haplotype %in% c('other', 'C_C_A', 'C_T_A'),
+           diet %in% c('LF - LF', 'LF - HF') ) %>%
+  plot_dp(condition='diet', comparisons=cannon_comparisons_pw,
+          subtitle='Cannon RRBS', binwidth=0.03,
+          method='wilcox.test')
+```
+
+### 1.3.- Zocher
+
+
+```{r}
+zocher_fd <- 'public/stress/zocher/'
+```
+
+```{r}
+zocher_metadata <- read_data('metadata/sra_metadata.txt',
+                             fd=zocher_fd,
+                             the_data_fd=the_data_fd) %>%
+  select(Run, BioSample, source_name) %>%
+  separate(source_name, into=c('Condition'), extra='drop')
+```
+
+```{r}
+zocher_comparisons <- zocher_metadata %>%
+  pull(Condition) %>% unique() %>% combn(2) %>%
+  as.data.frame() %>% as.list() %>% unname()
+```
+
+```{r}
+zocher_raw <- read_blink(zocher_fd, the_data_fd=the_data_fd) %>%
+  inner_join(haplotypes_mef %>% mutate(haplotype=adjust_haplo(haplotype)),
+             by=c('snp_pos'='pos_ref', 'snp_allele'='allele')) %>%
+  inner_join(zocher_metadata,
+             by=c('sample'='Run')) %>%
+  select(-sample) %>%
+  rename(sample=BioSample)
+```
+
+
+```{r}
+zocher_meth_ov <- zocher_raw %>%
+  group_by(sample, snp_pos, snp_allele, meth_pos, haplotype) %>%
+  filter(n()>=10) %>%
+  group_by(sample, snp_pos, meth_pos, Condition) %>%
+  filter(n()>=50, n_distinct(haplotype)>1) %>%
+  group_by(sample, haplotype, Condition) %>%
+  summarise(meth=sum(meth_state=='+')/n(),
+            .groups='drop')
+```
+
+```{r}
+zocher_meth_ata <- zocher_raw %>%
+  group_by(sample, snp_pos, snp_allele, meth_pos, haplotype) %>%
+  filter(n()>=10) %>%
+  group_by(sample, snp_pos, meth_pos, Condition) %>%
+  filter(n()>=50, n_distinct(haplotype)>1) %>%
+  filter(snp_pos %in% c(6007, 6832)) %>%
+  group_by(sample, haplotype, Condition) %>%
+  summarise(meth=sum(meth_state=='+')/n(),
+            .groups='drop')
+```
+
+### 1.4.- O'Toole
+
+```{r}
+otoole_fd <- 'public/stress/otoole/'
+```
+
+```{r}
+otoole_metadata <- read_data('metadata/sra_metadata.txt',
+                             fd=otoole_fd,
+                             the_data_fd=the_data_fd) %>%
+  select(Run, BioSample, Phenotype=PHENOTYPE )
+```
+
+
+```{r}
+otoole_comparisons <- otoole_metadata %>%
+  pull(Phenotype) %>% unique() %>% combn(2) %>%
+  as.data.frame() %>% as.list() %>% unname()
+```
+
+```{r}
+otoole_raw <- read_blink(otoole_fd, the_data_fd=the_data_fd) %>%
+  inner_join(haplotypes_mef %>% mutate(haplotype=adjust_haplo(haplotype)),
+             by=c('snp_pos'='pos_ref', 'snp_allele'='allele')) %>%
+  inner_join(otoole_metadata,
+             by=c('sample'='Run')) %>%
+  select(-sample) %>%
+  rename(sample=BioSample)
+```
+
+
+```{r}
+otoole_meth_ov <- otoole_raw %>%
+  group_by(sample, snp_pos, snp_allele, meth_pos, haplotype) %>%
+  filter(n()>=10) %>%
+  group_by(sample, snp_pos, meth_pos, Phenotype) %>%
+  filter(n()>=50, n_distinct(haplotype)>1) %>%
+  group_by(sample, haplotype, Phenotype) %>%
+  summarise(meth=sum(meth_state=='+')/n(),
+            .groups='drop')
+```
+
+```{r}
+otoole_meth_ata <- otoole_raw %>%
+  group_by(sample, snp_pos, snp_allele, meth_pos, haplotype) %>%
+  filter(n()>=10) %>%
+  group_by(sample, snp_pos, meth_pos, Phenotype) %>%
+  filter(n()>=50, n_distinct(haplotype)>1) %>%
+  filter(snp_pos %in% c(6007, 6832)) %>%
+  group_by(sample, haplotype, Phenotype) %>%
+  summarise(meth=sum(meth_state=='+')/n(),
+            .groups='drop')
+```
+
+
+### 1.5.- Combine plots
+
+  
+```{r}
+plot_column <- function(df, comparisons, label_y=1.05) {
+  df %>%
+  ggplot(aes(x=condition, y=meth, color=haplotype)) +
+  geom_dotplot(aes(fill=haplotype),
+               binaxis = "y", stackdir = "center",
+               alpha=0.7, stroke=2, binwidth=0.05) +
+  stat_compare_means(
+      comparisons=comparisons, method='wilcox.test', size=3,
+      label.y=label_y, vjust=-0.2) +
+  facet_grid(rows=vars(haplotype),
+             cols=vars(study), scales='free_x', space='free') +
+    theme_bw() +
+    scale_color_manual(name='',
+                       values=haplotype_colours) +
+    scale_fill_manual(name='',
+                      values=haplotype_colours) +
+    scale_y_continuous(limits=c(0, 1.15), breaks=c(0, 0.5, 1),
+                       labels=c('', 0.5, 1)) +
+    labs(x='', y='Methylation Level') +
+    theme(legend.position='none',
+          panel.grid=element_blank(),
+          panel.spacing=unit(0.2, 'lines'),
+          axis.text.x=element_text(angle=45, hjust=1))
+}
+```
+
+
+
+#### 1.5.1.- In-Utero
+
+````{r}
+control_long <- paste0(
+    paste0(rep(' ', nchar('Susceptible')-nchar('Control')+1),
+           collapse = ''), 'Control')
+holland_comparisons_iu <- list(
+  c(control_long, 'PR'))
+```
+
+```{r}
+stress_iu <- bind_rows(
+  holland_meth_ata %>% 
+    rename(condition=Diet) %>% mutate(study='Holland et al'),
+  cannon_meth_ata %>% rename(condition=diet)  %>%
+              mutate(condition=fct_rev(condition),
+                     study='Cannon et al')) %>%
+  filter(haplotype %in% c('A_T_A', 'other'),
+         condition != 'LF - HF' ) %>%
+  mutate(condition=if_else(condition=='Control', control_long, condition),
+         haplotype=if_else(haplotype=='other', 'Other', haplotype)) %>%
+  mutate(haplotype=gsub('_', '', haplotype))
+```  
+
+
+```{r fig.width=3, fig.height=3}
+stress_iu_p <- ((
+  plot_column(stress_iu %>% filter(study=='Holland et al'),
+              comparisons=holland_comparisons_iu) +
+  theme(strip.text.x=element_text(size=12),
+        axis.text.x=element_text(size=12),
+        strip.text.y=element_blank(),
+        axis.text.y=element_text(size=12),
+        axis.title.y=element_text(size=14)) |
+    plot_column(stress_iu %>%
+              filter(study=='Cannon et al') %>%
+              mutate(condition=fct_rev(condition)),
+            comparisons=list(c('LF - LF', 'HF - LF'),
+                             c('LF - LF', 'HF - HF')),
+            label_y=c(0.9, 1.05)) +
+  theme(strip.text.x=element_text(size=12),
+        axis.text.x=element_text(size=12),
+        strip.text.y=element_text(size=12),
+        axis.text.y=element_blank(),
+        axis.ticks.y=element_blank(),
+        axis.title.y=element_blank())) *
+  theme(plot.margin=unit(c(0,0.2,0,0), "cm"),
+        strip.background=element_blank(),
+        panel.border=element_rect(size=1.1)) +
+  plot_layout(widths=c(0.8,1.5)))
+```
+
+```{r}
+ggsave('../../figures/publication/fig_3/A/stress_iu.pdf',
+       stress_iu_p, height=4, width=4, dpi=1200)
+```
+
+#### 1.3.2.- Post-Weaning
+
+````{r}
+zocher_comparisons_pw <- list(
+  c(control_long, "Enriched"),
+  c(control_long, "Withdrawal"),
+  c("Enriched", "Withdrawal"))
+```
+
+````{r}
+otoole_comparisons_pw <- list(
+  c(control_long, 'Susceptible'))
+```
+
+```{r}
+stress_pw <- bind_rows(
+  zocher_meth_ata %>%
+    rename(condition=Condition) %>%
+    mutate(study='Zocher et al',
+           condition=if_else(condition=='ENRiched', 'Enriched', condition)),
+  otoole_meth_ata %>%
+    rename(condition=Phenotype) %>%
+    mutate(study="O'Toole et al") %>%
+    mutate(condition=if_else(condition=='Control', control_long, condition)),
+  cannon_meth_ata %>% rename(condition=diet) %>% mutate(study='Cannon et al')) %>%
+  filter(haplotype %in% c('A_T_A', 'other'),
+         ! condition %in% c('HF - HF', 'HF - LF')) %>%
+  mutate(condition=if_else(condition=='Control', control_long, condition),
+         haplotype=if_else(haplotype=='other', 'Other', haplotype)) %>%
+  mutate(haplotype=gsub('_', '', haplotype))
+```  
+  
+
+```{r}
+stress_pw_p <- ((
+  plot_column(stress_pw %>% 
+              filter(study=='Zocher et al'),
+            comparisons=zocher_comparisons_pw,
+            label_y=c(0.9, 1.05, 0.9)) +
+    theme(
+      strip.text.x=element_text(size=12),
+      axis.text.x=element_text(size=12),
+      strip.text.y=element_blank(),
+      axis.text.y=element_text(size=12),
+      axis.title.y=element_text(size=14)) | 
+    plot_column(stress_pw %>%
+              filter(study=="O'Toole et al"),
+            comparisons=otoole_comparisons_pw) +
+    theme(
+      axis.text.x=element_text(size=12),
+      strip.text.x=element_text(size=12),
+      axis.text.y=element_blank(),
+      axis.ticks.y=element_blank(),
+      axis.title.y=element_blank(),
+      strip.background.y=element_blank(),
+      strip.text.y=element_blank()) |
+    plot_column(stress_pw %>%
+              filter(study=='Cannon et al') %>%
+              mutate(condition=fct_rev(condition)),
+            comparisons=list(c('LF - LF', 'LF - HF'))) +
+    theme(
+      strip.text.x=element_text(size=12),
+      axis.text.x=element_text(size=12),
+      strip.text.y=element_text(size=12),
+      axis.text.y=element_blank(),
+      axis.ticks.y=element_blank(),
+      axis.title.y=element_blank())) *
+    theme(
+      plot.margin=unit(c(0,0.2,0,0), "cm"),
+      strip.background=element_blank(),
+      panel.border=element_rect(size=1.1),
+      axis.text.x=element_text(angle=45, hjust=1)) +
+  plot_layout(widths=c(0.75,0.5,0.75)))
+```
+
+```{r}
+ggsave('../../figures/publication/fig_3/B/stress_pw.pdf',
+       stress_pw_p, height=4, width=5, dpi=1200)
+```
+
+#### Collapsed
+
+```{r}
+plot_study <- function(df, comparisons, label_y=1.05) {
+  df %>%
+    ggplot(aes(x=condition, y=meth, fill=haplotype)) +
+    geom_boxplot(alpha=0.8, size=0.7, outlier.shape = 21) +
+    facet_grid(cols=vars(study), scales='free_x') +
+    stat_compare_means(
+      aes(x=condition, y=meth, group=condition),
+      data=(df %>% filter(haplotype == 'ATA')),
+      comparisons=comparisons,
+      method='wilcox.test', size=4,
+      label.y=label_y, vjust=-0.2, inherit.aes = F) +
+      theme_bw() +
+      scale_fill_manual(name='Haplotype',
+                        values=haplotype_colours[
+                          c('ATA', 'Other')]) +
+      scale_y_continuous(limits=c(0, 1.15), breaks=c(0, 0.5, 1),
+                       labels=c('', 0.5, 1)) +
+      labs(x='', y='Methylation Level') +
+      theme(legend.position='none',
+            panel.grid=element_blank(),
+            panel.spacing=unit(0.2, 'lines'),
+            panel.border=element_rect(size=1.1),
+            strip.background=element_blank(),
+            strip.text=element_text(size=12),
+            axis.text.x=element_text(size=12),
+            axis.text.y=element_text(size=12),
+            axis.title=element_text(size=14),
+            plot.margin=unit(c(0, 0, 0, 0), 'lines'))
+}
+```
+            
+```{r}      
+holland_iu_col_p <- 
+  plot_study(stress_iu %>% filter(study=='Holland et al'),
+              comparisons=holland_comparisons_iu) +
+  theme(strip.text.x=element_text(size=12),
+        axis.text.x=element_text(size=12),
+        strip.text.y=element_blank(),
+        axis.text.y=element_text(size=12),
+        axis.title.y=element_text(size=14))
+```
+
+```{r}
+cannon_iu_col_p <- 
+  plot_study(stress_iu %>%
+              filter(study=='Cannon et al') %>%
+              mutate(condition=fct_rev(condition)),
+              comparisons=list(c('LF - LF', 'HF - LF'),
+                               c('LF - LF', 'HF - HF')),
+              label_y=c(0.9, 1.05)) +
+  theme(strip.text.x=element_text(size=12),
+        axis.text.x=element_text(size=12),
+        strip.text.y=element_text(size=12),
+        axis.text.y=element_blank(),
+        axis.ticks.y=element_blank(),
+        axis.title.y=element_blank())
+```
+
+```{r}
+stress_iu_p <- (holland_iu_col_p |
+   (cannon_iu_col_p +
+      theme(plot.margin=unit(c(0, 1.5, 0, 0), 'lines'),
+            legend.position='right',
+            legend.title=element_text(size=14, face='bold'),
+            legend.text=element_text(size=12)))) +
+  plot_layout(widths=c(0.5, 1))
+```
+
+```{r}
+ggsave('../../figures/accepted/fig_3/stress_iu_p.pdf',
+       stress_iu_p, height=4, width=6, dpi=1200)
+```
+
+
+
+#### Supplementary - All Haplotypes
+
+
+```{r}
+
+stress_nut <- bind_rows(holland_meth_ov %>% mutate(study='Holland et al'),
+          cannon_meth_ov %>%
+            rename(Diet=diet) %>%
+            mutate(study='Cannon et al')) %>%
+  filter(haplotype!='other') %>%
+  mutate(haplotype=gsub('_', '', haplotype),
+         Diet=fct_rev(Diet),
+         Diet=fct_relevel(Diet, 'Control'),
+         study=fct_rev(study))
+```
+
+```{r}
+plot_study_nut <- function(df, comparisons, label_y=1) {
+  df %>%
+    ggplot(aes(x=Diet, y=meth)) +
+    geom_boxplot(aes(fill=haplotype),
+                 alpha=0.8, size=0.7, outlier.shape = 21) +
+    facet_grid(cols=vars(study), rows=vars(haplotype), scales='free_x') +
+    stat_compare_means(comparisons=comparisons,
+                       method='wilcox.test', size=3,
+                       label.y=label_y, vjust=-0.2) +
+      theme_bw() +
+      scale_fill_manual(name='',
+                        values=haplotype_colours) +
+      scale_y_continuous(limits=c(0, 1.1), breaks=c(0, 0.5, 1),
+                       labels=c('', 0.5, 1)) +
+      labs(x='', y='Methylation Level') +
+      theme(legend.position='none',
+            panel.grid=element_blank(),
+            panel.spacing=unit(0.2, 'lines'),
+            panel.border=element_rect(size=1.1),
+            strip.background=element_blank(),
+            strip.text.x=element_text(size=12),
+            strip.text.y=element_text(size=12, angle=0, hjust=0),
+            axis.text.x=element_text(size=12, angle=45, hjust=1),
+            axis.text.y=element_text(size=12),
+            axis.title=element_text(size=14),
+            plot.margin=unit(c(0, 0, 0, 0), 'lines'))
+}
+```
+
+```{r}
+stress_nut_holland_p <- plot_study_nut(stress_nut %>% 
+                 filter(study=='Holland et al'),
+               comparisons=list(c('Control', 'PR')))
+stress_nut_cannon_p <- plot_study_nut(stress_nut %>% 
+                 filter(study=='Cannon et al'),
+               comparisons=list(c('LF - LF', 'LF - HF'),
+                                c('LF - LF', 'HF - LF'),
+                                c('LF - LF', 'HF - HF')),
+               label_y=c(0.8, 0.9, 1))
+```
+
+```{r}
+library(patchwork)
+(stress_nut_holland_p + theme(strip.text.y=element_blank())) +
+  (stress_nut_cannon_p + theme(axis.text.y=element_blank(),
+                               axis.title.y=element_blank(),
+                               axis.ticks.y=element_blank())) +
+  plot_layout(widths=c(1.5, 3.5)) +
+  ggsave('../../figures/publication/fig_3/A/stress_nut_p.pdf',
+       height=12, width=5, dpi=1200)
+
+```
+
+```{r}
+
+ggsave('../../figures/publication/fig_3/A/stress_nut_cannon_p.pdf',
+       stress_nut_cannon_p, height=12, width=3.5, dpi=1200)
+```
+
+## B.- Effect of Dnmt1 KO
+
+```{r}
+dahlet_fd <- 'public/dnmt_ko/dahlet/'
+```
+
+
+```{r}
+dahlet_metadata_dnmt1 <- read_data('metadata/sra_metadata.txt',
+          fd=dahlet_fd, the_data_fd=the_data_fd) %>%
+    select(Run, BioSample, Condition=`genotype/variation`) %>%
+    filter(Condition %in% c('wild type', 'Dnmt1-/-')) %>%
+    group_by(Condition) %>%
+    mutate(
+        Condition=factor(if_else(
+          Condition=='wild type', 'WT', 'Dnmt1 KO'),
+                         levels=c('WT', 'Dnmt1 KO'))) %>%
+  ungroup()
+```
+
+```{r}
+dahlet_comparisons_dnmt1 <- dahlet_metadata_dnmt1 %>%
+  pull(Condition) %>% unique() %>%
+  as.character() %>% combn(2) %>%
+  as.data.frame() %>% as.list() %>% unname()
+```
+
+
+```{r}
+dahlet_raw_dnmt1 <- read_blink(dahlet_fd, the_data_fd=the_data_fd) %>%
+  inner_join(haplotypes_mef %>%
+               mutate(haplotype=adjust_haplo(haplotype)),
+             by=c('snp_pos'='pos_ref',
+                  'snp_allele'='allele')) %>%
+  inner_join(dahlet_metadata_dnmt1,
+             by=c('sample'='Run')) %>%
+  select(-sample) %>%
+  rename(sample=BioSample)
+```
+
+```{r}
+haplotypes_pos <- haplotypes_mef %>%
+  mutate(haplotype=adjust_haplo(haplotype),
+         haplotype=gsub('_', '', haplotype)) %>%
+  filter(haplotype!='other') %>%
+  mutate(haplotype=if_else(nchar(haplotype)==1,
+                           'A/C', haplotype)) %>% 
+  select(-allele) %>% distinct()
+```
+
+```{r}
+dahlet_meth_dnmt1_ov <- dahlet_raw_dnmt1 %>%
+  group_by(sample, snp_pos, snp_allele, meth_pos, haplotype) %>%
+  filter(n()>=10) %>%
+  group_by(sample, snp_pos, meth_pos, Condition) %>%
+  filter(n()>=50, n_distinct(haplotype)>1) %>%
+  inner_join(haplotypes_pos, by=c('snp_pos'='pos_ref'), 
+             suffix=c('', '_pos')) %>%
+  group_by(sample, haplotype, haplotype_pos, Condition) %>%
+  summarise(meth=sum(meth_state=='+')/n(), .groups='drop')
+```
+
+```{r}
+dahlet_meth_cond_p <- dahlet_meth_dnmt1_ov %>%
+  filter(haplotype_pos %in% c('ATA')) %>%
+  mutate(haplotype=gsub('_', '', haplotype),
+         haplotype=gsub('o', 'O', haplotype)) %>%
+  ggplot(aes(x=haplotype, y=meth)) +
+  geom_boxplot(aes(fill=haplotype),
+               alpha=0.8, size=0.7) +
+  stat_compare_means(
+    aes(group=haplotype),
+    method='wilcox.test',
+    comparisons=list(c('ATA', 'Other')),
+    label.y=0.9,
+    label.x.npc=0.25,
+    vjust=-0.25,
+    size=4) +
+  facet_grid(cols=vars(Condition)) +
+  theme_bw() +
+  scale_fill_manual(name='',
+                    values=haplotype_colours) +
+  scale_y_continuous(limits=c(0, 1), breaks=c(0, 0.5, 1),
+                     labels=c('', 0.5, 1)) +
+  labs(x='', y='Methylation level') +
+  theme(legend.position='none',
+        strip.background=element_blank(),
+        strip.text=element_text(size=font_size),
+        panel.spacing=unit(0.2, 'lines'),
+        panel.border=element_rect(size=1.1),
+        panel.grid=element_blank(),
+        axis.text.y=element_text(size=font_size),
+        axis.text.x=element_text(angle=0, hjust=0.5,
+                                 size=font_size),
+        axis.title=element_text(size=font_size+2))
+```
+
+```{r}
+dahlet_rna <- read_snps_lofreq(
+  'lofreq', fn='many',
+  data_fd=paste0(the_data_fd, dahlet_fd)) %>%
+  mutate(snp_pos=adjust_pos(pos, 3008)) %>%
+  inner_join(dahlet_metadata_dnmt1,
+             by=c('sample'='Run')) 
+```
+
+```{r}
+dahlet_rna_rel_freq_nc <- dahlet_rna %>%
+  inner_join(haplotypes_mef %>% mutate(haplotype=adjust_haplo(haplotype)),
+             by=c('snp_pos'='pos_ref')) %>%
+  filter(snp_pos < 9005, haplotype!='other', ref==allele | alt==allele) %>%
+  mutate(num_ref=dp*(1-af), 
+         num_alt=dp*af,
+         num_haplo=if_else(allele==ref, num_ref, num_alt),
+         num_pos=(num_ref+num_alt)) %>%
+  group_by(BioSample, Condition, haplotype) %>%
+  summarise(freq=sum(num_haplo)/sum(num_pos), .groups='drop') %>%
+  filter(haplotype %in% c('A_T_A', 'A_T_G')) %>%
+  pivot_wider(names_from='haplotype', values_from='freq') %>%
+  mutate(ratio=`A_T_A`/`A_T_G`)
+```
+
+
+```{r}
+dahlet_rel_freq_nc_p <- dahlet_rna_rel_freq_nc %>%
+  ggplot(aes(x=Condition, y=ratio)) +
+    geom_boxplot(fill='grey60', alpha=0.8, size=0.7) +
+  stat_compare_means(
+    comparisons=dahlet_comparisons_dnmt1,
+    method="wilcox.test", label.y=0.9, label.x.npc=0.25, vjust=-0.25,
+    size=4)  +
+  theme_bw() +
+  scale_y_continuous(limits=c(0, 1), breaks=c(0, 0.5, 1),
+                     labels=c('', 0.5, 1)) +
+  scale_x_discrete(labels=c('WT', 'KO')) +
+  labs(x='', y="Relative ATA vs. ATG expression") +
+  theme(panel.grid=element_blank(),
+        panel.border=element_rect(size=1.1),
+        axis.title=element_text(size=font_size+2),
+        axis.text.y=element_text(size=font_size),
+        axis.text.x=element_text(size=font_size))
+```
+
+
+
+```{r}
+dahlet_cond_p <- (dahlet_meth_cond_p + dahlet_rel_freq_nc_p) +
+  plot_layout(widths=c(2, 1))
+```
+
+
+```{r}
+dahlet_meth_haplo_p <- dahlet_meth_dnmt1_ov %>%
+  mutate(haplotype=gsub('_', '', haplotype),
+         haplotype=gsub('o', 'O', haplotype)) %>%
+  filter(! haplotype %in% c('Other')) %>%
+  ggplot(aes(x=Condition, y=meth)) +
+  geom_boxplot(aes(fill=haplotype),
+               alpha=0.8, size=0.7) +
+  stat_compare_means(
+    aes(group=haplotype),
+    method='wilcox.test',
+    comparisons=dahlet_comparisons_dnmt1,
+    label.y=0.9,
+    label.x.npc=0.25,
+    vjust=-0.25,
+    size=4) +
+  facet_grid(cols=vars(haplotype)) +
+  theme_bw() +
+  scale_color_manual(name='',
+                     values=haplotype_colours) +
+  scale_fill_manual(name='',
+                    values=haplotype_colours) +
+  scale_y_continuous(limits=c(0, 1), breaks=c(0, 0.5, 1),
+                     labels=c('', 0.5, 1)) +
+  scale_x_discrete(labels=c('WT', 'KO')) +
+  labs(x='', y='Methylation level') +
+  theme(legend.position='none',
+        strip.background=element_blank(),
+        strip.text=element_text(size=font_size),
+        panel.spacing=unit(0.2, 'lines'),
+        panel.border=element_rect(size=1.1),
+        panel.grid=element_blank(),
+        axis.text.y=element_text(size=font_size),
+        axis.text.x=element_text(angle=0, hjust=0.5,
+                                 size=font_size),
+        axis.title=element_text(size=font_size+2))
+```
+
+
+```{r}
+fig_3_fd <- '../../figures/accepted/fig_3/'
+dir.create(fig_3_fd, showWarnings = FALSE, recursive = T)
+ggsave(paste0(fig_3_fd, 'dahlet_cond.pdf'),
+       dahlet_cond_p, width=5, height=4.2, dpi=1200)
+ggsave(paste0(fig_3_fd, 'dahlet_haplo.pdf'),
+       dahlet_meth_haplo_p, width=5, height=4, dpi=1200)
+```
+
+
+## Ageing
+
+### 3.1.- Metadata and Raw data
+
+```{r}
+petkovich_fd <- 'public/ageing/petkovich/'
+```
+
+```{r}
+petkovich_metadata <- read_data('metadata/sra_metadata.txt',
+                                fd=petkovich_fd,
+                                the_data_fd=the_data_fd) 
+```
+
+```{r}
+petkovich_samples <- petkovich_metadata %>%
+  select(Run, BioSample, geo_id=`GEO_Accession (exp)`, diet) %>%
+  inner_join(read_data('metadata/mouse_ids.csv',
+                       fd=petkovich_fd,
+                       the_data_fd=the_data_fd),
+             by='geo_id') %>%
+  inner_join(read_data('metadata/ages.csv',
+                       fd=petkovich_fd,
+                       the_data_fd=the_data_fd),
+             by='mouse_id') %>%
+  mutate(age=gsub(' (at isolation)', '', age, fixed=TRUE))
+```
+
+```{r}
+ages <- unique(petkovich_samples$age)
+```
+
+```{r}
+petkovich_samples <- petkovich_samples %>%
+  mutate(age=factor(age, levels=sort(as.numeric(ages)))) %>%
+  filter(strain_cond=="C57BL/6")
+```
+
+```{r}
+petkovich_reads <- read_csv(
+  file.path(the_data_fd, petkovich_fd, 'metadata/reads.csv'),
+  col_types=cols()) %>%
+  select(-read_id) %>%
+  inner_join(petkovich_samples %>%
+               filter(diet=='standard'),
+             by=c('sample'='Run')) %>%
+  select(read_num, sample, age)
+```
+
+```{r eval=F}
+petkovich_raw_all <- read_csv(
+  file.path(the_data_fd, petkovich_fd, 'blink_joint/blink.csv'),
+  col_types=cols()) %>%
+  inner_join(petkovich_reads, by=c('read_num')) %>%
+  mutate(snp_pos=adjust_pos(snp_pos, 3008)) %>%
+  mutate(meth_pos=adjust_pos(meth_pos, 3008)) %>%
+  inner_join(haplotypes_mef %>% mutate(haplotype=adjust_haplo(haplotype)),
+             by=c('snp_pos'='pos_ref', 'snp_allele'='allele'))
+```
+
+```{r}
+load(file.path(the_data_fd, petkovich_fd,
+               'blink_joint/pekovich_raw_all.RData'))
+```
+
+### Methylation
+
+```{r}
+petkovich_meth_all <- petkovich_raw_all %>%
+    group_by(sample, snp_pos, snp_allele, meth_pos, haplotype) %>%
+    filter(n()>=10) %>%
+    group_by(sample, snp_pos, meth_pos, age) %>%
+    filter(n()>=50, n_distinct(haplotype)>1) %>%
+    group_by(sample, snp_pos, snp_allele, meth_pos, haplotype, age) %>%
+    summarise(meth=sum(meth_state=='+')/n(), .groups='drop')
+```
+
+```{r}
+petkovich_meth_p <- petkovich_meth_all %>%
+  filter(haplotype!='other') %>%
+  mutate(haplotype=gsub('_', '', haplotype)) %>%
+  group_by(sample, age, haplotype) %>%
+  summarise(meth=mean(meth), .groups='drop') %>%
+  ggplot() +
+  geom_boxplot(aes(x=age, y=meth, fill=haplotype),
+               alpha=0.9, outlier.shape=21, size=0.7) +
+  facet_grid(rows=vars(haplotype)) +
+  theme_bw() +
+  scale_y_continuous(
+    limits=c(0,1),
+    breaks=c(0, 0.5, 1),
+    labels=c('', 0.5, 1)) +
+  scale_fill_manual(name='',
+                    values=haplotype_colours) +
+  labs(x='Age (months)', y='Methylation level') +
+  theme(
+    legend.position='none',
+    panel.grid=element_blank(),
+    panel.border=element_rect(size=1.1),
+    axis.text=element_text(size=12),
+    axis.title=element_text(size=14),
+    strip.text.y=element_text(angle=0, hjust=0, size=12),
+    strip.background=element_blank(),
+    panel.spacing=unit(0.2, 'lines')
+  )
+```
+
+```{r}
+ggsave('../../figures/publication/supp/petkovich_meth.pdf',
+       petkovich_meth_p, height=4, width=6, dpi=1200)
+```
+
+```{r, petkovich_supp}
+petkovich_meth_cpg_p <- petkovich_meth_all %>%
+  mutate(age=as.numeric(as.character(age))) %>%
+  filter(age >=2) %>%
+  group_by(snp_pos, meth_pos, age) %>%
+  filter(n_distinct(sample) > 2) %>%
+  group_by(snp_pos, meth_pos) %>%
+  filter(n_distinct(age) >= 5) %>%
+  filter(snp_pos==6832) %>%
+  mutate(haplotype=if_else(haplotype=='other', 'Other', haplotype)) %>%
+  mutate(haplotype=gsub('_', '', haplotype)) %>%
+  rename(Haplotype=haplotype) %>%
+  ggplot(aes(x=age, y=meth, fill=Haplotype, shape=Haplotype, colour=Haplotype)) +
+  geom_point(stroke=0.75, alpha=0.7) +
+  geom_smooth(method='lm', size=0.75, alpha=0.1) +
+  stat_cor(show.legend=F, size=4, label.y.npc = 0.97) +
+  facet_wrap(. ~ meth_pos, ncol=5) +
+  theme_bw() +
+  scale_y_continuous(limits=c(0, 1.2),
+                     breaks=c(0, 0.5, 1), labels=c('', 0.5, 1)) +
+  scale_x_continuous(limits=c(0, 40)) +
+  labs(x='Age (months)', y='Methylation Level') +
+  scale_shape_manual(values=c('ATA'=21, 'Other'=22)) +
+  scale_fill_manual(values=c('ATA'='royalblue3', 'Other'='grey50')) +
+  scale_colour_manual(values=c('ATA'='royalblue3', 'Other'='grey50')) +
+  theme(aspect.ratio=1,
+        panel.grid=element_blank(),
+        panel.border=element_rect(size=1.1),
+        legend.position='bottom',
+        legend.title=element_text(face='bold', size=12),
+        legend.text=element_text(size=12),
+        strip.background = element_blank(),
+        strip.text=element_text(size=12),
+        axis.text=element_text(size=12),
+        axis.title=element_text(size=14),
+        panel.spacing=unit(0.2, 'lines'),
+        legend.margin=margin(t=-5, r=0, b=0, l=0))
+```
+```{r}
+ggsave('../../figures/publication/supp/petkovich_cpg.pdf',
+       petkovich_meth_cpg_p, height=8, width=12, dpi=1200)
+```
+
+```{r}
+petkovich_corr_all <- petkovich_meth_all %>%
+  mutate(age=as.numeric(as.character(age))) %>%
+  filter(age >=2) %>%
+  group_by(snp_pos, meth_pos, age) %>%
+  filter(n_distinct(sample) > 2) %>%
+  group_by(snp_pos, meth_pos) %>%
+  filter(n_distinct(age) >= 5) %>%
+  select(-sample) %>%
+  nest(data=c(age, meth)) %>%
+  mutate(test=map(data, ~ cor.test(.x$age, .x$meth) %>%
+                    broom::tidy())) %>%
+  unnest(test)
+```
+
+
+
+
+```{r}
+font_size <- 12
+petkovich_comparisons <- list(c('A_T_A', 'Other'))
+petkovich_corr_p <- petkovich_corr_all %>%
+  filter(snp_pos==6832) %>%
+  mutate(haplotype=if_else(haplotype=='other', 'Other', haplotype)) %>%
+  mutate(haplotype=gsub('_', '', haplotype)) %>%
+  ggplot(aes(x=haplotype, y=estimate, color=haplotype)) +
+  geom_hline(yintercept=0, color='grey80', size=0.6, linetype='dashed') +
+  geom_dotplot(aes(fill=haplotype),
+               binaxis = "y", stackdir = "center",
+               alpha=0.7, stroke=2, binwidth=0.05) +
+  stat_compare_means(
+      comparisons=petkovich_comparisons, size=3,
+      label.y=c(0.65), vjust=-0.2) +
+  theme_bw() +
+  scale_color_manual(name='',
+                    values=haplotype_colours) +
+  scale_fill_manual(name='',
+                    values=haplotype_colours) +
+  scale_y_continuous(lim=c(-0.75, 0.75),
+                     breaks=c(-0.5, 0, 0.5),
+                     labels=c(-0.5, 0, 0.5)) +
+    labs(x='',
+         y='Correlation coefficient\n(CpG methylation level vs. age)') +
+    theme(legend.position='none',
+          panel.grid=element_blank(),
+          panel.border=element_rect(size=1.1),
+          axis.title=element_text(size=font_size+2),
+          axis.text=element_text(size=font_size))
+```
+
+```{r}
+ggsave('../../figures/publication/fig_3/C/petkovich_corr.pdf',
+       petkovich_corr_p, height=4, width=3, dpi=1200)
+```
+
+
+```{r}
+petkovich_corr_cpg_p <- petkovich_corr_all %>%
+  filter(snp_pos==6832) %>%
+  mutate(haplotype=if_else(haplotype=='other', 'Other', haplotype)) %>%
+  mutate(haplotype=gsub('_', '', haplotype)) %>%
+  ggplot(aes(x=meth_pos, y=estimate, color=haplotype, shape=haplotype)) +
+  geom_hline(yintercept=0, color='grey80', size=0.6, linetype='dashed') +
+  geom_point(aes(fill=haplotype, shape=haplotype),
+             size=3, alpha=0.6, stroke=1) +
+  annotate('text', x=6775, y=0.15, label='p = 1.3e-08', angle=90) +
+  annotate('segment', x=6782, xend=6782, y=-0.0345, yend=0.341) +
+  annotate('segment', x=6782, xend=6785, y=-0.0345, yend=-0.0345) +
+  annotate('segment', x=6782, xend=6785, y=0.341, yend=0.341) +
+  theme_bw() +
+  scale_color_manual(name='Haplotype',
+                     values=haplotype_colours) +
+  scale_fill_manual(name='Haplotype',
+                    values=haplotype_colours) +
+  scale_shape_manual(name='Haplotype',
+                     values=c('ATA'=21, 'Other'=22)) +
+  scale_y_continuous(lim=c(-0.6, 0.6),
+                     breaks=c(-0.5, 0, 0.5),
+                     labels=c(-0.5, 0, 0.5)) +
+  scale_x_continuous(limits=c(6775, 7025), breaks=c(6800, 6900, 7000)) +
+  labs(x='CpG site in rDNA unit',
+       y='Correlation coefficient\n(CpG methylation level vs. age)') +
+  theme(aspect.ratio=1,
+        legend.position='bottom',
+        panel.grid=element_blank(),
+        panel.border=element_rect(size=1.1),
+        axis.title=element_text(size=font_size+2),
+        axis.text=element_text(size=font_size),
+        legend.title=element_text(size=font_size, face='bold'),
+        legend.text=element_text(size=font_size),
+        legend.margin=margin(t=-5, r=0, b=0, l=0))
+```
+
+```{r}
+ggsave('../../figures/publication/fig_3/C/petkovich_corr_cpg.pdf',
+       petkovich_corr_cpg_p, height=4, width=4, dpi=1200)
+```
+
+```{r}
+exp_cor <- ((1-2*0.752)/(1-2*0.235))*0.3408361
+```
+
+```{r}
+petkovich_corr_bp_p <- petkovich_corr_all %>%
+  filter(snp_pos==6832) %>%
+  mutate(haplotype=if_else(haplotype=='other', 'Other', haplotype)) %>%
+  mutate(haplotype=gsub('_', '', haplotype)) %>%
+  ggplot(aes(x=haplotype, y=estimate)) +
+  geom_hline(yintercept=0, color='grey80', size=0.6, linetype='dashed') +
+  geom_boxplot(aes(fill=haplotype), outlier.shape=21, alpha=0.7, size=0.7) +
+  stat_compare_means(label.y = 0.53,
+                     comparisons=list(c('ATA', 'Other')),
+                     size=4) +
+  geom_boxplot(data=data.frame(y=exp_cor, x='ATA'),
+               aes(x=x, y=y),
+               color='red', size=0.3, alpha=0.5, width=0.5) +
+  theme_bw() +
+  scale_fill_manual(name='Haplotype',
+                    values=haplotype_colours) +
+  scale_y_continuous(lim=c(-0.7, 0.7),
+                     breaks=c(-0.5, 0, 0.5),
+                     labels=c(-0.5, 0, 0.5)) +
+  labs(x='',
+       y='Correlation coefficient\n(CpG methylation level vs. age)') +
+  theme(legend.position='none',
+        panel.grid=element_blank(),
+        panel.border=element_rect(size=1.1),
+        axis.title=element_text(size=font_size+2),
+        axis.text=element_text(size=font_size),
+        legend.margin=margin(t=-5, r=0, b=0, l=0))
+```
+
+```{r}
+ggsave('../../figures/accepted/fig_3/C_petkovich_corr_bp.pdf',
+       petkovich_corr_bp_p, height=4, width=2.5, dpi=1200)
+```
+
+```{r}
+petkovich_corr_all_p <- petkovich_corr_all %>%
+  filter(haplotype!='other') %>%
+  mutate(haplotype=gsub('_', '', haplotype)) %>%
+  ggplot(aes(x=haplotype, y=estimate)) +
+  geom_hline(yintercept=0, color='grey80', size=0.6, linetype='dashed') +
+  geom_boxplot(aes(fill=haplotype), outlier.shape=21, alpha=0.7, size=0.7) +
+  theme_bw() +
+  scale_fill_manual(name='Haplotype',
+                    values=haplotype_colours) +
+  scale_y_continuous(lim=c(-0.6, 0.6),
+                     breaks=c(-0.5, 0, 0.5),
+                     labels=c(-0.5, 0, 0.5)) +
+  labs(x='',
+       y='Correlation coefficient\n(CpG methylation level vs. age)') +
+  theme(aspect.ratio=1,
+        legend.position='none',
+        panel.grid=element_blank(),
+        panel.border=element_rect(size=1.1),
+        axis.title=element_text(size=font_size+2),
+        axis.text=element_text(size=font_size),
+        legend.title=element_text(size=font_size, face='bold'),
+        legend.text=element_text(size=font_size),
+        legend.margin=margin(t=-5, r=0, b=0, l=0))
+
+```
+
+```{r}
+ggsave('../../figures/publication/supp/petkovich_corr_all.pdf',
+       petkovich_corr_all_p, height=4, width=4.5, dpi=1200)
+```
+
+### Disorder
+
+#### Per-read entropy (ATA vs other)
+
+```{r}
+petkovich_entropies_ata <- petkovich_raw_all %>%
+  filter(snp_pos==6832) %>%
+  select(read_num, sample, meth_pos, meth_state, age, haplotype) %>%
+  distinct() %>%
+  group_by(read_num, sample, age, haplotype) %>%
+  filter(n()>=10) %>%
+  summarise(num_cpg=n(),
+            p=sum(meth_state=='+')/num_cpg,
+            .groups='keep') %>%
+  mutate(entropy_read=entropy::entropy(c(p, 1-p), unit = 'log2')) %>%
+  group_by(sample, age, haplotype) %>%
+  summarise(entropy=mean(entropy_read), .groups='drop')
+```
+
+
+```{r}
+petkovich_entropy_p <- petkovich_entropies_ata %>%
+  mutate(haplotype=if_else(haplotype=='other', 'Other', haplotype)) %>%
+  mutate(haplotype=gsub('_', '', haplotype)) %>%
+  ggplot(aes(x=as.numeric(as.character(age)),
+             y=entropy, group=haplotype, colour=haplotype)) +
+  geom_point(aes(fill=haplotype), shape=21,size=2,
+             alpha=0.6, stroke=1) +
+  stat_cor(show.legend = F, label.x.npc=0.25, label.y=0.05,
+           size=5) +
+  geom_smooth(method='lm', alpha=0.1, size=0.6) +
+  facet_grid(cols=vars(haplotype)) +
+  scale_colour_manual('Haplotype', values=haplotype_colours) +
+  scale_fill_manual('Haplotype', values=haplotype_colours) +
+  scale_y_continuous(
+    limits=c(0, 1), 
+    breaks=c(0, 0.5, 1),
+    labels=c('', 0.5, 1)) +
+  scale_x_continuous(limits=c(0, 40)) +
+  theme_bw() +
+  labs(x='Age (months)', y='Per-read entropy') +
+  theme(aspect.ratio=0.85,
+        plot.margin=unit(c(0, 0, 0, 0), units='lines'),
+        panel.border=element_rect(size=1.1),
+        panel.grid=element_blank(),
+        strip.background=element_blank(),
+        strip.text=element_text(size=12),
+        axis.text=element_text(size=12),
+        axis.title=element_text(size=14),
+        legend.position='none') 
+```
+
+```{r}
+ggsave(paste0(
+  '../../figures/accepted/fig_3/D_petkovich_entropy.pdf'),
+       petkovich_entropy_p, height=4, width=10, dpi=1200)
+```
+       
+```{r}
+petkovich_entropies_all <- petkovich_raw_all %>%
+  select(read_num, sample, meth_pos, meth_state, age, haplotype) %>%
+  filter(haplotype != 'other') %>%
+  distinct() %>%
+  group_by(read_num, sample, age, haplotype) %>%
+  filter(n()>=10) %>%
+  summarise(num_cpg=n(),
+            p=sum(meth_state=='+')/num_cpg,
+            .groups='keep') %>%
+  mutate(entropy_read=entropy::entropy(c(p, 1-p), unit = 'log2')) %>%
+  group_by(sample, age, haplotype) %>%
+  summarise(entropy=mean(entropy_read), .groups='drop')
+```
+
+```{r}
+petkovich_entropy_all_p <- petkovich_entropies_all %>%
+  mutate(haplotype=gsub('_', '', haplotype)) %>%
+  ggplot(aes(x=as.numeric(as.character(age)),
+             y=entropy, group=haplotype, colour=haplotype)) +
+  geom_point(aes(fill=haplotype), shape=21,size=1,
+             alpha=0.6, stroke=1) +
+  stat_cor(show.legend = F, label.x.npc=0.3, label.y=0.05) +
+  geom_smooth(method='lm', alpha=0.1, size=0.4) +
+  facet_wrap(.~haplotype, nrow=2) +
+  scale_colour_manual('Haplotype', values=haplotype_colours) +
+  scale_fill_manual('Haplotype', values=haplotype_colours) +
+  scale_y_continuous(limits=c(0, 1), breaks=c(0, 0.5, 1), labels=c('', 0.5, 1)) +
+  scale_x_continuous(limits=c(0, 40)) +
+  theme_bw() +
+  labs(x='Age (months)', y='Per-read entropy') +
+  theme(aspect.ratio=1,
+        plot.margin=unit(c(0, 0, 0, 0), units='lines'),
+        panel.border=element_rect(size=1.1),
+        panel.grid=element_blank(),
+        strip.background=element_blank(),
+        strip.text=element_text(size=12),
+        axis.text=element_text(size=12),
+        axis.title=element_text(size=14),
+        legend.position='none') 
+```
+
+```{r}
+ggsave('../../figures/publication/supp/petkovich_entropy_all.pdf',
+       petkovich_entropy_all_p, height=6, width=8, dpi=1200)
+```
+
+#### Epipolymorphism
+
+```{r}
+petkovich_ata_top_cpgs <- petkovich_raw_all %>%
+  filter(snp_pos==6832) %>%
+  group_by(meth_pos) %>%
+  mutate(num_samples=n_distinct(sample), num_reads=n_distinct(read_num)) %>%
+  ungroup() %>%
+  filter(num_samples==n_distinct(sample)) %>%
+  select(-num_samples) %>%
+  mutate(rank=dense_rank(desc(num_reads))) %>%
+  filter(rank<=4) %>%
+  group_by(read_num) %>%
+  filter(n_distinct(meth_pos)==4)
+```
+
+```{r}
+petkovich_ata_meth_comb_props <- petkovich_ata_top_cpgs %>%
+  select(-num_reads, -rank) %>%
+  arrange(meth_pos) %>%
+  group_by(read_num, sample, age, haplotype) %>%
+  pivot_wider(names_from=meth_pos, values_from=meth_state) %>%
+  unite('meth_comb', ! c(read_num, snp_pos, snp_allele,
+                         sample, age, haplotype), sep='') %>%
+  group_by(sample, snp_allele) %>%
+  mutate(num_reads=n_distinct(read_num)) %>%
+  group_by(sample, age, haplotype, snp_allele, meth_comb) %>%
+  summarise(prop=n_distinct(read_num)/num_reads, .groups='drop') %>%
+  distinct()
+```
+
+```{r}
+petkovich_epipolymorphism <- petkovich_ata_meth_comb_props %>%
+  mutate(prop_2=prop*prop) %>%
+  group_by(sample, age, haplotype, snp_allele) %>%
+  summarise(epipolymorphism=(1-sum(prop_2)),
+            entropy=-0.25*sum(prop*log2(prop)),
+            .groups='drop') %>%
+  mutate(haplotype=if_else(haplotype=='other', 'Other', haplotype)) %>%
+  mutate(haplotype=gsub('_', '', haplotype))
+```
+
+```{r}
+petkovich_epipolymorphism_p <- petkovich_epipolymorphism %>%
+  ggplot(aes(x=as.numeric(as.character(age)),
+             y=epipolymorphism, group=haplotype, colour=haplotype)) +
+  geom_point(aes(fill=haplotype), shape=21,size=1,
+             alpha=0.6, stroke=1) +
+  stat_cor(show.legend = F, label.x.npc=0.5, label.y=0.05) +
+  geom_smooth(method='lm', alpha=0.1, size=0.4) +
+  facet_grid(cols=vars(haplotype)) +
+  scale_colour_manual('Haplotype', values=haplotype_colours) +
+  scale_fill_manual('Haplotype', values=haplotype_colours) +
+  scale_y_continuous(limits=c(0, 1),
+                     breaks=c(0, 0.5, 1),
+                     labels=c('', 0.5, 1)) +
+  scale_x_continuous(limits=c(0, 40)) +
+  theme_bw() +
+  labs(x='Age (months)', y='Epipolymorphism') +
+  theme(aspect.ratio=1,
+        plot.margin=unit(c(0.2, 0, 0, 0), units='lines'),
+        panel.border=element_rect(size=1.1),
+        panel.grid=element_blank(),
+        strip.background=element_blank(),
+        strip.text=element_text(size=12),
+        axis.text=element_text(size=12),
+        axis.title=element_text(size=14),
+        legend.position='none') 
+```
+
+
+```{r}
+fig_3d_fd <- '../../figures/publication/fig_3/D/'
+dir.create(fig_3d_fd, showWarnings = FALSE, recursive = T)
+ggsave(paste0(fig_3d_fd, 'petkovich_entropy.pdf'),
+       petkovich_entropy_p, height=4, width=8, dpi=1200)
+ggsave(paste0(fig_3d_fd, 'petkovich_epipolymorphism.pdf'),
+       petkovich_epipolymorphism_p, height=4, width=8, dpi=1200)
+```
+
+```{r}
+petkovich_disorder_p <- petkovich_entropy_p / petkovich_epipolymorphism_p
+```
+```{r}
+ggsave('../../figures/publication/fig_3/D/petkovich_disorder.pdf',
+       petkovich_disorder_p, height=4.2, width=4, dpi=1200)
+```
+

@@ -1,0 +1,1697 @@
+---
+title: "Figure 2.- Functional Consequences"
+---
+
+## 0.- Setup
+
+```{r, echo=F, message=F}
+the_data_fd <- '../../data/'
+source('../../scripts/setup.R')
+source('../../scripts/haplotypes.R')
+```
+
+## A.- Ultralong Nanopore: Methylation across the haplotypes
+
+```{r}
+mef_meth_supp <- read_tsv(
+  '../../data/mef/supp/per_read_modified_base_calls.txt',
+  col_types=cols()) %>%
+  filter(chrm=="BK000964.3_looped_3008_20_units") %>%
+  select(-chrm) %>%
+  mutate(pos=if_else(strand=='+', pos+1, pos),
+         unit_num=as.integer( ( pos - 1) / 45306) + 1,
+         pos_ref=adjust_pos((pos %% 45306), 3008)) %>%
+  mutate(mod_prob=exp(mod_log_prob), can_prob=exp(can_log_prob)) %>%
+  pivot_longer(c(mod_prob, can_prob),
+               values_to='prob', names_to='dominant') %>%
+  filter(prob>0.9) %>%
+  mutate(meth=if_else(dominant=="mod_prob", 1, 0))   %>%
+  ungroup() %>%
+  group_by(read_id, strand, pos_ref, mod_log_prob, can_log_prob,
+           mod_base, prob, meth) %>%
+  summarise(unit_num=min(unit_num), .groups='drop') 
+```
+
+Obtained using Megalodon with supplementary alignments enabled, and
+duplicate calls removed.
+
+```{r}
+mef_meth_supp_p <- mef_meth_supp %>%
+  inner_join(mef_haplotypes_supp, by=c('read_id', 'unit_num')) %>%
+  filter(haplotype %in% c('A_T_A', 'A_T_G', 'C_T_A', 'C_C_A'),
+         pos_ref >= -1000, pos_ref <= 13341) %>%
+  group_by(haplotype, pos_ref) %>%
+  filter(n()>10) %>%
+  summarise(meth_level=mean(meth), .groups='drop') %>%
+  mutate(haplotype=gsub('_', '', haplotype)) %>%
+  ggplot() +
+  geom_rect(data=coding_regions_m,
+            aes(xmin=start, xmax=end, ymin=-Inf, ymax=Inf),
+            fill='grey10', alpha=0.1) +
+  geom_vline(xintercept=0, alpha=0.3) +
+  geom_point(aes(x=pos_ref, y=meth_level, color=haplotype), alpha=0.4) +
+  facet_grid(rows=vars(haplotype)) +
+  scale_colour_manual(name='Haplotype', values=haplotype_colours) +
+  scale_y_continuous(breaks=c(0.5, 1)) +
+  scale_x_continuous(breaks=seq(from=0, to=12500, by=2500),
+                     labels=c('TSS', seq(from=2500, to=12500, by=2500))) +
+  theme_bw() +
+  labs(x='CpG site in rDNA unit', y='Methylation Level') +
+  theme(legend.position='None',
+        panel.grid=element_blank(),
+        panel.border=element_rect(size=1.1),
+        axis.text=element_text(size=14),
+        axis.title=element_text(size=14),
+        strip.background=element_blank(),
+        strip.text.y=element_text(size=14, angle=0, hjust=0)) 
+```
+
+
+```{r}
+ggsave('../../figures/accepted/fig_2/A_haplotypes_methylation.pdf',
+       mef_meth_supp_p, height=4, width=12, dpi=1200)
+```
+
+### Supplementary
+
+#### Methylation across entire unit
+
+```{r}
+mef_meth_supp_all_p <- mef_meth_supp %>%
+  inner_join(mef_haplotypes_supp, by=c('read_id', 'unit_num')) %>%
+  filter(haplotype %in% c('A_T_A', 'A_T_G', 'C_T_A', 'C_C_A'),
+         pos_ref >= -1000) %>%
+  group_by(haplotype, pos_ref) %>%
+  filter(n()>10) %>%
+  summarise(meth_level=mean(meth), .groups='drop') %>%
+  mutate(region=if_else(pos_ref<=13341,
+                        'Prom+Trans', 'IGS'),
+         region=fct_rev(region),
+         haplotype=gsub('_', '', haplotype)) %>%
+  mutate(haplotype=gsub('_', '', haplotype)) %>%
+  ggplot(aes(x=region, y=meth_level)) +
+  geom_boxplot(aes(fill=haplotype), size=0.8, outlier.shape = 21, alpha=0.8) +
+  facet_grid(cols=vars(haplotype)) + 
+  scale_fill_manual('', values=haplotype_colours) + 
+  scale_y_continuous(breaks=c(0, 0.5, 1), labels=c('', 0.5, 1)) +
+  theme_bw() +
+  labs(x='', y='Methylation Level') +
+  theme(panel.grid=element_blank(),
+        panel.border=element_rect(size=1.1),
+        panel.spacing=unit(0.2, 'lines'),
+        strip.background=element_blank(),
+        legend.position='none',
+        axis.text=element_text(size=12),
+        axis.title=element_text(size=14),
+        strip.text=element_text(size=12))
+```
+
+```{r}
+ggsave('../../figures/publication/supp/mef_meth_all.pdf',
+       mef_meth_supp_all_p, height=3, width=6.5, dpi=1200)
+```
+
+#### Average methylation per unit
+
+```{r}
+set.seed(10)
+mef_meth_units_p <- mef_meth_supp %>%
+  inner_join(mef_haplotypes_supp, by=c('read_id', 'unit_num')) %>%
+  filter(haplotype %in% c('A_T_A', 'A_T_G', 'C_T_A', 'C_C_A'),
+         pos_ref >= -1000, pos_ref <= 13341) %>%
+  group_by(read_id, unit_num, haplotype) %>%
+  summarise(meth=mean(meth), .groups='drop') %>%
+  mutate(haplotype=gsub('_', '', haplotype)) %>%
+  ggplot(aes(x=1, y=meth)) +
+  stat_summary(aes(group=haplotype, colour=haplotype),
+               fun=median, fun.min=median, fun.max=median, width=1,
+               geom='crossbar', alpha=0.3) +
+  geom_jitter(aes(fill=haplotype),
+              shape=21, alpha=0.7) +
+  facet_grid(cols=vars(haplotype)) +
+  theme_bw() +
+  scale_fill_manual(name='Haplotype', values=haplotype_colours) +
+  scale_colour_manual(name='Haplotype', values=haplotype_colours) +
+  scale_y_continuous(
+    limits=c(-0.01, 1),
+    breaks=c(0, 0.5, 1),
+    labels=c('', 0.5, 1)) +
+  theme_bw() +
+  labs(x='', y='Mean Methylation per Unit') +
+  theme(legend.position='None',
+        panel.grid=element_blank(),
+        panel.border=element_rect(size=1.1),
+        panel.spacing=unit(0.2, 'lines'),
+        strip.background=element_blank(),
+        strip.text=element_text(size=12),
+        axis.text=element_text(size=12),
+        axis.text.x=element_blank(),
+        axis.ticks.x=element_blank(),
+        axis.title=element_text(size=14),
+        axis.title.x=element_blank())
+```
+
+```{r}
+ggsave('../../figures/publication/supp/mef_meth_units.pdf',
+       mef_meth_units_p, height=3, width=6.5, dpi=1200)
+```
+
+## B.1- WGBS: Methylation across the haplotypes
+
+```{r}
+strains_metadata <- readxl::read_excel(
+  '../../data/strains/metadata/sampleID_mouseID.xlsx') %>%
+  mutate(strain=substr(`Mouse ID`, 1, nchar(`Mouse ID`)-1),
+         id=substr(`Mouse ID`, nchar(`Mouse ID`), nchar(`Mouse ID`))) %>%
+  select(-`Mouse ID`)
+```
+
+```{r}
+strains_wgbs_raw_6j <- read_blink(strains_wgbs_fd, the_data_fd='../../data/') %>%
+  inner_join(strains_metadata,
+             by=c('sample')) %>%
+  filter(strain=='BL6J') %>%
+  inner_join(haplotypes_mef,
+             by=c('snp_pos'='pos_ref', 'snp_allele'='allele')) %>%
+  group_by(haplotype) %>%
+  mutate(haplotype=adjust_haplo(haplotype)) %>%
+  ungroup()
+```
+
+```{r}
+strains_wgbs_meth_6j_pos <- strains_wgbs_raw_6j %>%
+  group_by(sample, snp_pos, snp_allele, meth_pos, haplotype) %>%
+  filter(n()>=10) %>%
+  group_by(sample, snp_pos, meth_pos) %>%
+  filter(n()>=50, n_distinct(haplotype)>1) 
+```
+
+```{r}
+strains_wgbs_meth_6j_cpg <- strains_wgbs_meth_6j_pos %>%
+  group_by(sample, meth_pos, haplotype) %>%
+  summarise(meth=sum(meth_state=='+')/n(), .groups='drop')
+```
+
+```{r}
+plot_meth <- function(df, the_mouse=1) {
+  df %>%
+  mutate(
+    mouse_num=as.numeric(gsub('S', '', sample)) - 14,
+    mouse=paste('Mouse', mouse_num)) %>%
+  filter(haplotype!='other', mouse_num==the_mouse) %>%
+  mutate(haplotype=gsub('_', '', haplotype)) %>%
+  ggplot() +
+  geom_point(aes(x=meth_pos, y=meth, fill=haplotype, color=haplotype),
+                 shape=21, alpha=0.6) +
+  geom_rect(data=coding_regions_m,
+            aes(xmin=start, xmax=end, ymin=-Inf, ymax=Inf),
+            fill='grey10', alpha=0.1) +
+  geom_vline(xintercept=0, alpha=0.3) +
+  facet_grid(rows=vars(haplotype)) +
+  theme_bw() +
+  scale_fill_manual(name='Haplotype',
+                     values=haplotype_colours) +
+  scale_colour_manual(name='Haplotype',
+                     values=haplotype_colours) +
+  scale_y_continuous(limits=c(0, 1), breaks=c(0.5, 1)) +
+  labs(x='CpG site in rDNA unit', y='Methylation Level') +
+  scale_x_continuous(limits=c(-2000, 13500),
+                     breaks=seq(from=0, to=12500, by=2500),
+                     labels=c('TSS', seq(from=2500, to=12500, by=2500))) +
+  theme(title = element_text(size=16),
+        panel.border=element_rect(size=1.1),
+        panel.grid = element_blank(),
+        panel.spacing=unit(0.2, 'lines'),
+        legend.position='none',
+        axis.text=element_text(size=14),
+        axis.title=element_text(size=14),
+        strip.background=element_blank(),
+        strip.text.y=element_text(size=14, angle=0, hjust=0)) +
+  guides(colour=guide_legend(nrow=1),
+         fill=guide_legend(nrow=1),
+         shape=guide_legend(nrow=1, override.aes = list(size=3))) +
+  ggtitle(paste('C57BL/6J kidney - Mouse', the_mouse))
+}
+```
+
+```{r}
+for (i in 1:4) {
+  ggsave(
+    paste0('strains_6j_meth_mouse_', i, '.pdf'),
+    path='../../figures/publication/fig_2/B/',
+         plot_meth(strains_wgbs_meth_6j_cpg, i),
+         height=4, width=8, dpi=1200)
+}
+```
+
+### Supplementary
+
+```{r}
+haplotypes_meth_6j <- strains_wgbs_raw_6j %>% 
+  inner_join(haplotypes_pos, by=c('snp_pos'='pos_ref'), 
+             suffix=c('', '_pos')) %>%
+  group_by(sample, haplotype) %>%
+  summarise(meth=sum(meth_state=='+')/n(), .groups='drop') %>%
+  filter(haplotype %in% c('A', 'A_T_A', 'A_T_G')) %>%
+  pivot_wider(names_from=haplotype, values_from=meth)
+
+
+haplotypes_freqs_6j <- strains_snps %>% filter(strain=='BL6J') %>%
+  inner_join(haplotypes_mef, by=c('snp_pos'='pos_ref')) %>% 
+  mutate(haplotype=adjust_haplo(haplotype)) %>%
+  filter(haplotype %in% c('A', 'A_T_A', 'A_T_G')) %>%
+  mutate(aaf=if_else(allele==alt, 1-ref_prop_exp, ref_prop_exp)) %>%
+  group_by(sample, haplotype) %>%
+  summarise(freq=mean(aaf), .groups='drop') %>%
+  pivot_wider(names_from=haplotype, values_from=freq) %>%
+  mutate(A_T_A=A_T_A/(A_T_A+A_T_G), A_T_G=A_T_G/(A_T_A+A_T_G))
+
+haplotypes_meth_pred_p <- haplotypes_meth_6j %>%
+  inner_join(haplotypes_freqs_6j,
+             by=c('sample'),
+             suffix=c('_meth', '_freq')) %>%
+  mutate(A_pred=(A_T_A_meth*A_T_A_freq + A_T_G_meth*A_T_G_freq)) %>%
+  ggplot(aes(x=A_meth, y=A_pred)) +
+  geom_point(size=3, shape=21, alpha=0.8, fill='black') +
+  stat_cor(label.x.npc = 0.1, label.y.npc=0.9) +
+  scale_x_continuous("Observed 'A' Methylation Level",
+                     limits=c(0, 0.5),
+                     breaks=c(0, 0.25, 0.5),
+                     labels=c('', 0.25, 0.5)) +
+  scale_y_continuous("Predicted 'A' Methylation Level",
+                     limits=c(0, 0.5),
+                     breaks=c(0, 0.25, 0.5),
+                     labels=c('', 0.25, 0.5)) +
+  theme_bw() +
+  theme(aspect.ratio=1,
+        panel.grid=element_blank(),
+        panel.border=element_rect(size=1.1),
+        axis.title=element_text(size=14),
+        axis.text=element_text(size=12))
+```
+```{r}
+ggsave('../../figures/publication/supp/haplotypes_meth_pred.pdf',
+       haplotypes_meth_pred_p, height=4, width=4, dpi=1200)
+```
+
+## B.2- Holland et al RRBS: Methylation in Control Samples
+
+```{r}
+holland_fd <- 'public/stress/holland/'
+```
+
+```{r}
+holland_metadata <- read_data('metadata/sra_metadata.txt',
+                              fd=holland_fd,
+                              the_data_fd=the_data_fd) %>%
+  select(Run, BioSample, Diet=diet)
+```
+
+```{r}
+holland_raw <- read_blink(holland_fd, the_data_fd=the_data_fd) %>%
+  inner_join(haplotypes_mef,
+             by=c('snp_pos'='pos_ref', 'snp_allele'='allele')) %>%
+  inner_join(holland_metadata,
+             by=c('sample'='Run')) %>%
+  select(-sample) %>%
+  rename(sample=BioSample)
+```
+
+```{r}
+holland_meth <- holland_raw %>%
+  group_by(sample, snp_pos, snp_allele, meth_pos, haplotype) %>%
+  filter(n()>=10) %>%
+  group_by(sample, snp_pos, meth_pos) %>%
+  filter(n()>=50, n_distinct(haplotype)>1) %>%
+  group_by(sample, snp_pos, snp_allele, meth_pos,
+           haplotype, Diet) %>%
+  summarise(meth=sum(meth_state=='+')/n(), .groups='drop')
+```
+
+```{r}
+holland_meth_ov <- holland_raw %>%
+  group_by(sample, snp_pos, snp_allele, meth_pos, haplotype) %>%
+  filter(n()>=10) %>%
+  group_by(sample, snp_pos, meth_pos, Diet) %>%
+  filter(n()>=50, n_distinct(haplotype)>1) %>%
+  group_by(sample, haplotype, Diet) %>%
+  summarise(meth=sum(meth_state=='+')/n(),
+            .groups='drop')
+```
+
+```{r}
+holland_meth_ov_p <- holland_meth_ov  %>%
+  filter(haplotype != 'other', Diet=='Control') %>%
+  mutate(haplotype=gsub('_', '', adjust_haplo(haplotype))) %>%
+  ggplot(aes(x=haplotype, y=meth, fill=haplotype)) +
+    geom_boxplot(alpha=0.8, size=0.7, outlier.shape = 21) +
+  theme_bw() +
+  scale_color_manual(name='Haplotype\nor Allele',
+                     values=haplotype_colours) +
+  scale_fill_manual(name='Haplotype\nor Allele',
+                     values=haplotype_colours) +
+  scale_y_continuous(limits=c(0, 1),
+                     breaks=c(0, 0.5, 1),
+                     labels=c('', 0.5, 1)) +
+  labs(x='', y='Methylation Level') +
+  theme(axis.text.y=element_text(size=12),
+        panel.border=element_rect(size=1.1),
+        axis.text.x=element_text(size=12),
+        axis.title=element_text(size=14),
+        panel.grid=element_blank(),
+        legend.position='none',
+        title=element_text(size=16)) +
+  ggtitle('Holland et al - Control mice')
+```
+
+```{r}
+fig_2c_fd <- '../../figures/publication/fig_2/B/'
+dir.create(fig_2c_fd, showWarnings = FALSE, recursive = T)
+ggsave(paste0(fig_2c_fd, 'holland_control_methylation.pdf'),
+       holland_meth_ov_p, height=4, width=4, dpi=1200)
+```
+
+
+
+## D.1.- Danson rRNA-Seq haplotype expression vs methylation
+
+```{r}
+danson_fd <- 'danson/'
+```
+
+```{r}
+danson_metadata <- read_data('metadata/rDNA_DNA_parameters.csv',
+                             fd=danson_fd,
+                             the_data_fd=the_data_fd) %>%
+  mutate(ID=stringr::str_trim(ID),
+        dam=gsub('[\"]', '', dam)) %>%
+  rename(id=ID,
+         liv_mapped_read_count=liver_mapped_read_count,
+         mus_mapped_read_count=muscle_mapped_read_count) %>%
+  tidyr::gather(key, value, -id, -dam, -liv_vs_mus_aperc104) %>%
+  mutate(key = stringr::str_replace(key, "_", " ")) %>%
+  tidyr::separate(key, c('tissue', 'col'), sep=' ') %>%
+  tidyr::spread(col, value) %>%
+  mutate(A_unmeth=A_cn*(1-cpg133a/100),
+         C_unmeth=(cn-A_cn)*(1-cpg133c/100),
+         A_C_unmethratio=A_unmeth/C_unmeth) %>%
+  select(mouse_id=id, tissue, everything(), -dam)
+```
+
+```{r}
+danson_rrna_fd <- 'danson/rrna/'
+```
+
+```{r}
+danson_rrna_metadata <- read_data('metadata/metadata.csv',
+                                  fd=danson_rrna_fd,
+                                  the_data_fd=the_data_fd)
+```
+
+```{r}
+danson_rna_many <- read_snps_lofreq(
+  'lofreq', fn='many',
+  data_fd=paste0(the_data_fd, danson_rrna_fd)) %>%
+  mutate(snp_pos=adjust_pos(pos, 3008))
+```
+
+```{r}
+danson_ata_meth <- danson_rna_many %>%
+  inner_join(
+      haplotypes_mef %>% mutate(haplotype=adjust_haplo(haplotype)),
+      by=c('snp_pos'='pos_ref')) %>%
+  filter(allele == ref | allele == alt, haplotype=='A_T_A') %>%
+  select(sample, snp_pos, ref, alt, allele, dp, af) %>%
+  mutate(haplo_af=if_else(allele==ref, 1-af, af),
+         haplo_dp=dp*haplo_af) %>%
+  group_by(sample) %>%
+  summarise(freq=sum(haplo_dp)/sum(dp), .groups='drop') %>%
+  inner_join(danson_rrna_metadata, by=c('sample')) %>%
+  inner_join(danson_metadata %>% select(mouse_id, tissue, cpg133a),
+             by=c('mouse_id', 'tissue')) %>%
+  mutate(meth=cpg133a/100)
+```
+
+```{r}
+danson_ata_meth_p <- danson_ata_meth %>%
+  ggplot(aes(x=meth, y=freq)) +
+  geom_segment(x=-Inf, xend=Inf, y=Inf, yend=-Inf, color='grey90', alpha=0.7) +
+  geom_point(shape=21, fill='grey20', colour='grey20', size=3, alpha=0.7, stroke=1) +
+  stat_cor(method = 'pearson', label.x=0.15, label.y=0.45, show.legend=F) +
+  scale_y_continuous(limits=c(0, 0.5),
+                     breaks=c(0, 0.25, 0.5),
+                     labels=c('', 0.25, 0.5)) +
+  scale_x_continuous(limits=c(0, 0.5),
+                     breaks=c(0, 0.25, 0.5),
+                     labels=c('', 0.25, 0.5)) +
+  labs(y='ATA frequency in rRNA-Seq',
+       x='Promoter methylation of "A" units') +
+  theme_bw() +
+  theme(aspect.ratio=1,
+        panel.grid=element_blank(),
+        panel.border=element_rect(size=1.1),
+        axis.title=element_text(size=font_size+2),
+        axis.text=element_text(size=font_size),
+        legend.position='None')
+```
+
+```{r}
+fig_2d_fd <- '../../figures/publication/fig_2/D/'
+dir.create(fig_2d_fd, showWarnings = FALSE, recursive = T)
+ggsave(paste0(fig_2d_fd, 'danson_ata_meth_muscle.pdf'),
+       danson_ata_meth_p, height=4, width=4, dpi=1200)
+```
+
+### Supplementary
+
+```{r}
+danson_mrna_rrna %>%
+  filter((pos_ref==6007 & alt == 'G') |
+           (pos_ref==6832 & alt == 'A')) %>%
+  pivot_longer(c(af_mrna, af_rrna), names_to='rna', values_to='af') %>%
+  mutate(rna=if_else(rna=='af_mrna', 'mRNA-Seq', 'rRNA-Seq')) %>%
+  select(-alt) %>%
+  pivot_wider(names_from=pos_ref, values_from=af) %>%
+  ggplot(aes(x=`6007`, y=`6832`)) +
+  geom_point(alpha=0.7, size=3, stroke=0.8) +
+  facet_grid(cols=vars(rna)) +
+  stat_cor() + theme_bw() +
+  scale_x_continuous(
+    limits=c(0, 0.4),
+    breaks=c(0, 0.2, 0.4),
+    labels=c('', 0.2, 0.4)
+  ) +
+  scale_y_continuous(
+    limits=c(0, 0.4),
+    breaks=c(0, 0.2, 0.4),
+    labels=c('', 0.2, 0.4)
+  ) +
+  labs(x='ATA frequency at 6007', y='ATA frequency at 6832') +
+  theme(aspect.ratio=1,
+        panel.border=element_rect(size=1.1),
+        panel.grid=element_blank(),
+        axis.text=element_text(size=12),
+        axis.title=element_text(size=14),
+        strip.text=element_text(size=12),
+        strip.background=element_blank())
+```
+
+```{r}
+danson_mrna_rrna %>%
+  filter((pos_ref==6007 & alt == 'G') |
+           (pos_ref==6832 & alt == 'A')) %>%
+  pivot_longer(c(af_mrna, af_rrna), names_to='rna', values_to='af') %>%
+  mutate(rna=if_else(rna=='af_mrna', 'mRNA-Seq', 'rRNA-Seq')) %>%
+  select(-alt) %>%
+  pivot_wider(names_from=rna, values_from=af) %>%
+  ggplot(aes(x=`rRNA-Seq`, y=`mRNA-Seq`)) +
+  geom_point(alpha=0.7, size=3, stroke=0.8) +
+  facet_grid(cols=vars(pos_ref)) +
+  stat_cor() + theme_bw() +
+  scale_x_continuous(
+    limits=c(0, 0.4),
+    breaks=c(0, 0.2, 0.4),
+    labels=c('', 0.2, 0.4)
+  ) +
+  scale_y_continuous(
+    limits=c(0, 0.4),
+    breaks=c(0, 0.2, 0.4),
+    labels=c('', 0.2, 0.4)
+  ) +
+  theme(aspect.ratio=1,
+        panel.border=element_rect(size=1.1),
+        panel.grid=element_blank(),
+        axis.text=element_text(size=12),
+        axis.title=element_text(size=14),
+        strip.text=element_text(size=12),
+        strip.background=element_blank())
+```
+
+```{r}
+danson_mrna_rrna %>%
+  filter((pos_ref==6777 & alt == 'G') |
+             (pos_ref==12736 & alt == 'G')) %>%
+  pivot_longer(c(af_mrna, af_rrna), names_to='rna', values_to='af') %>%
+  mutate(rna=if_else(rna=='af_mrna', 'mRNA-Seq', 'rRNA-Seq'),
+         af=if_else(pos_ref==6777, 1-af, af)) %>%
+  select(-alt) %>%
+  pivot_wider(names_from=pos_ref, values_from=af) %>%
+  ggplot(aes(x=`6777`, y=`12736`))  +
+  geom_point(alpha=0.7, size=3, stroke=0.8) +
+  facet_grid(cols=vars(rna)) + 
+  stat_cor() +
+  scale_x_continuous(
+    limits=c(0, 0.5),
+    breaks=c(0, 0.25, 0.5),
+    labels=c('', 0.25, 0.5)
+  ) +
+  scale_y_continuous(
+    limits=c(0, 0.5),
+    breaks=c(0, 0.25, 0.5),
+    labels=c('', 0.25, 0.5)
+  ) +
+  theme_bw() +
+  theme(aspect.ratio=1,
+        panel.border=element_rect(size=1.1),
+        panel.grid=element_blank(),
+        axis.text=element_text(size=12),
+        axis.title=element_text(size=14),
+        strip.text=element_text(size=12),
+        strip.background=element_blank())
+```
+```{r}
+danson_mrna_rrna %>%
+  filter((pos_ref==6777 & alt == 'G') |
+             (pos_ref==12736 & alt == 'G')) %>%
+  pivot_longer(c(af_mrna, af_rrna), names_to='rna', values_to='af') %>%
+  mutate(rna=if_else(rna=='af_mrna', 'mRNA-Seq', 'rRNA-Seq'),
+         af=if_else(pos_ref==6777, 1-af, af)) %>%
+  select(-alt) %>%
+  pivot_wider(names_from=rna, values_from=af) %>%
+  ggplot(aes(x=`rRNA-Seq`, y=`mRNA-Seq`)) +
+  geom_point(alpha=0.7, size=3, stroke=0.8) +
+  facet_grid(cols=vars(pos_ref)) +
+  stat_cor() + theme_bw() +
+  theme(aspect.ratio=1,
+        panel.border=element_rect(size=1.1),
+        panel.grid=element_blank(),
+        axis.text=element_text(size=12),
+        axis.title=element_text(size=14),
+        strip.text=element_text(size=12),
+        strip.background=element_blank())
+```
+
+```{r}
+danson_mrna_rrna %>%
+  filter(mouse_id %in% c('29L5', '59L3')) %>%
+  inner_join(haplotypes_mef %>% select(pos_ref, allele, haplotype),
+             by=c('pos_ref', 'alt'='allele')) %>%
+  pivot_longer(c(af_mrna, af_rrna), names_to='rna', values_to='af') %>%
+  pivot_wider(names_from=mouse_id, values_from=af) %>%
+  mutate(haplotype=gsub('_', '', adjust_haplo(haplotype)),
+         rna=if_else(rna=='af_mrna', 'mRNA-Seq', 'rRNA-Seq'),
+         ratio=`29L5`/`59L3`) %>%
+  select(pos_ref, haplotype, rna, ratio) %>%
+  pivot_wider(names_from=rna, values_from=ratio) %>%
+  ggplot(aes(y=`mRNA-Seq`, x=`rRNA-Seq`)) +
+  geom_point(alpha=0.7, size=3, stroke=0.8) +
+  stat_cor() +
+  theme_bw() +
+  labs(x='Allele frequency ratio in rRNA-Seq',
+       y='Allele frequency ratio in mRNA-Seq') +
+  theme(aspect.ratio=1,
+        panel.border=element_rect(size=1.1),
+        panel.grid=element_blank(),
+        axis.text=element_text(size=12),
+        axis.title=element_text(size=14),
+        strip.text=element_text(size=12),
+        strip.background=element_blank())
+```
+
+## D.2- Strains 6J rRNA-Seq adjusted frequencies
+
+```{r}
+strains_rna_fd <- 'strains/rna/'
+strains_wgbs_fd <- 'strains/wgbs/'
+```
+
+```{r}
+strains_metadata <- readxl::read_excel(
+  '../../data/strains/metadata/sampleID_mouseID.xlsx') %>%
+  mutate(strain=substr(`Mouse ID`, 1, nchar(`Mouse ID`)-1),
+         id=substr(`Mouse ID`, nchar(`Mouse ID`), nchar(`Mouse ID`))) %>%
+  select(-`Mouse ID`)
+```
+
+```{r}
+strains_snps_6j <- read_snps(strains_wgbs_fd, the_data_fd='../../data/') %>%
+  inner_join(strains_metadata, by=c('sample')) %>%
+  filter(strain=='BL6J')
+```
+
+```{r}
+strains_rna_many <- read_snps_lofreq(
+  'lofreq', fn='many',
+  data_fd=paste0(the_data_fd, strains_rna_fd)) %>%
+  mutate(snp_pos=adjust_pos(pos, 3008))
+```
+
+```{r}
+strains_wgs_rrna_6j <- strains_snps_6j %>%
+  inner_join(strains_rna_many,
+             by=c('snp_pos', 'ref', 'alt', 'sample')) %>%
+  rename(num_rrna=dp, aaf_rrna=af) %>%
+  mutate(num_wgs=`A`+`C`+`T`+`G`,
+         aaf_wgs=1-ref_prop_exp) %>%
+  filter(num_rrna>100, num_wgs>100) %>%
+  mutate(difference=abs(aaf_rrna-aaf_wgs))
+```
+
+
+```{r}
+# strains_epivariants_filt created for Figure 4
+strains_wgs_rrna_meth_6j <- strains_wgs_rrna_6j %>%
+    select(sample, strain, id, snp_pos, ref, alt, aaf_rrna, aaf_wgs) %>%
+    inner_join(
+        haplotypes_mef %>% mutate(haplotype=adjust_haplo(haplotype)),
+        by=c('snp_pos'='pos_ref')) %>%
+    inner_join(
+        read_csv(
+            '../../data/strains/summaries/strains_epivariants_filt.csv',
+            col_types=cols()) %>% mutate(id=as.character(id)),
+        by=c('sample', 'strain', 'id', 'snp_pos', 'allele'='snp_allele')) %>%
+    filter(snp_pos %in% c(6007, 6832)) %>%
+  mutate(the_allele=if_else(allele==ref, 'meth_ref', 'meth_alt')) %>%
+  select(-allele, -haplotype)
+```
+
+```{r}
+strains_adj_freq_6j <- strains_wgs_rrna_meth_6j %>%
+  pivot_wider(names_from=the_allele, values_from=meth) %>%
+  mutate(
+    aaf_adj=(
+      (aaf_wgs*(1-meth_alt))/(aaf_wgs*(1-meth_alt)+(1-aaf_wgs)*(1-meth_ref)))) %>%
+  select(strain, id, snp_pos, aaf_rrna, aaf_wgs, aaf_adj) %>%
+  pivot_longer(c(aaf_wgs, aaf_adj),
+               names_to='type', names_prefix='aaf_', values_to='aaf') %>%
+  mutate(type=if_else(type=='adj', 'Adjusted', 'Non-Adjusted'))
+```
+
+```{r}
+font_size <- 12
+adj_colours_2 <- c('Non-Adjusted'='grey50', 'Adjusted'='grey10')
+adj_shapes <- c('Non-Adjusted'=22, 'Adjusted'=21)
+strains_adj_freq_6j_p <- strains_adj_freq_6j %>%
+  ggplot(aes(x=aaf, y=aaf_rrna, color=type, fill=type, shape=type)) +
+  geom_segment(x=-1, xend=1, y=-1, yend=1, color='grey90', alpha=0.5) +
+  geom_point(size=3, alpha=0.7, stroke=1) +
+  stat_cor(method = 'pearson', label.x.npc=0.10, label.y.npc=0.95, show.legend=F) +
+  labs(x='ATA frequency in WGS',
+       y='ATA frequency in rRNA-Seq') +
+  scale_x_continuous(limits=c(0, 0.5),
+                     breaks=c(0, 0.25, 0.5),
+                     labels=c('', 0.25, 0.5)) +
+  scale_y_continuous(limits=c(0, 0.5),
+                     breaks=c(0, 0.25, 0.5),
+                     labels=c('', 0.25, 0.5)) +
+  scale_colour_manual('Frequency', values=adj_colours_2) +
+  scale_fill_manual('Frequency', values=c('grey10', 'white')) +
+  scale_shape_manual('Frequency', values=adj_shapes) +
+  theme_bw() +
+  theme(aspect.ratio=1,
+        panel.grid=element_blank(),
+        panel.border=element_rect(size=1.1),
+        axis.title=element_text(size=font_size+2),
+        axis.text=element_text(size=font_size),
+        legend.title=element_text(size=font_size, face='bold'),
+        legend.text=element_text(size=font_size),
+        legend.position='bottom',
+        legend.spacing.x = unit(0.1, 'lines'),
+        legend.box.margin=margin(-7,-7,-7,-7))
+```
+
+```{r}
+ggsave('../../figures/publication/fig_2/D/strains_6J_adj_freq.pdf',
+       strains_adj_freq_6j_p, width=4, height=4.5, dpi=1200)
+```
+
+```{r}
+### Supplementary
+strains_ata_meth_expr_p <- strains_wgs_rrna_meth_6j %>%
+  filter(the_allele=='meth_alt') %>%
+  ggplot(aes(y=aaf_rrna, x=meth)) +
+  geom_point(size=4, alpha=0.7) +
+  stat_cor(method = 'pearson', label.x.npc=0.45,
+           label.y.npc=0.1, show.legend=F) +
+  scale_y_continuous(limits=c(0, 1),
+                     breaks=c(0, 0.5, 1),
+                     labels=c('', 0.5, 1)) +
+  scale_x_continuous(limits=c(0, 0.15),
+                     breaks=c(0, 0.05, 0.1, 0.15),
+                     labels=c('', 0.05, 0.1, 0.15)) +
+  labs(y='ATA frequency in rRNA-Seq',
+       x='Methylation level') +
+  theme_bw() +
+  theme(aspect.ratio=1,
+        panel.grid=element_blank(),
+        panel.border=element_rect(size=1.1),
+        axis.title=element_text(size=font_size+2),
+        axis.text=element_text(size=font_size),
+        legend.position='None')
+```
+
+```{r}
+ggsave('../../figures/publication/fig_2/B/strains_6j_ata_meth_expr.pdf',
+       strains_ata_meth_expr_p, width=4, height=4, dpi=1200)
+```
+
+#### Combined
+
+```{r}
+danson_strains_6j_p <- bind_rows(
+  strains_wgs_rrna_meth_6j %>%
+    filter(the_allele=='meth_alt') %>%
+    select(freq=aaf_rrna, meth) %>%
+    mutate(tissue='Kidney'),
+  danson_ata_meth %>%
+    select(freq, meth) %>%
+    mutate(tissue='Muscle')) %>%
+  ggplot(aes(y=freq, x=meth, shape=tissue, fill=tissue, color=tissue)) +
+  geom_point(size=4, alpha=0.7, stroke=1) +
+  stat_cor(method = 'pearson', label.x.npc=0.5,
+           label.y.npc=0.88, show.legend=F) +
+  scale_y_continuous(limits=c(0, 1),
+                     breaks=c(0, 0.5, 1),
+                     labels=c('', 0.5, 1)) +
+  scale_x_continuous(limits=c(0, 0.5),
+                     breaks=c(0, 0.25, 0.5),
+                     labels=c('', 0.25, 0.5)) +
+  scale_shape_manual('Tissue', values=c('Muscle'=22, 'Kidney'=21)) +
+  scale_fill_manual('Tissue', values=c('Muscle'='grey50', 'Kidney'='grey10')) +
+  scale_colour_manual('Tissue', values=c('Muscle'='grey50', 'Kidney'='grey10')) +
+  labs(y='ATA frequency in rRNA-Seq',
+       x='Methylation level') +
+  theme_bw() +
+  theme(legend.position=c(0.6, 0.85),
+        legend.background = element_rect(colour='black', size=0.4, fill='transparent'),
+        legend.title = element_text(face='bold', size=font_size),
+        legend.text = element_text(size=font_size-2),
+        legend.margin = margin(t=5, b=5, l=5, r=120),
+        legend.key.size = unit(1, 'lines'),
+        aspect.ratio=1,
+        panel.grid=element_blank(),
+        panel.border=element_rect(size=1.1),
+        axis.title=element_text(size=font_size+2),
+        axis.text=element_text(size=font_size))
+```
+
+```{r}
+ggsave('../../figures/publication/fig_2/D/danson_strains_6j.pdf',
+       danson_strains_6j_p, width=4, height=4, dpi=1200)
+```
+
+```{r}
+danson_strains_6j_no_cor_p <- bind_rows(
+  strains_wgs_rrna_meth_6j %>%
+    filter(the_allele=='meth_alt') %>%
+    select(freq=aaf_rrna, meth) %>%
+    mutate(tissue='Kidney'),
+  danson_ata_meth %>%
+    select(freq, meth) %>%
+    mutate(tissue='Muscle')) %>%
+  ggplot(aes(y=freq, x=meth, shape=tissue, fill=tissue, color=tissue)) +
+  geom_point(size=4, alpha=0.7, stroke=1) +
+  scale_x_continuous(limits=c(0, 0.75),
+                     breaks=c(0, 0.25, 0.5, 0.75),
+                     labels=c('', 0.25, 0.5, 0.75)) +
+  scale_y_continuous(limits=c(0, 0.3),
+                     breaks=c(0, 0.15, 0.3),
+                     labels=c('', 0.15, 0.3)) +
+  scale_shape_manual('', values=c('Muscle'=22, 'Kidney'=21)) +
+  scale_fill_manual('', values=c('Muscle'='grey50', 'Kidney'='grey10')) +
+  scale_colour_manual('', values=c('Muscle'='grey50', 'Kidney'='grey10')) +
+  labs(y='ATA frequency in rRNA-Seq',
+       x='Methylation level') +
+  theme_bw() +
+  theme(legend.position=c(0.85, 0.85),
+        legend.background = element_rect(colour='black', 
+                                         size=0.2, 
+                                         fill='transparent'),
+        legend.text = element_text(size=font_size-2),
+        legend.title = element_blank(),
+        legend.margin = margin(t=0, b=5, l=5, r=5),
+        legend.key.size = unit(0.75, 'lines'),
+        aspect.ratio=1,
+        panel.grid=element_blank(),
+        panel.border=element_rect(size=1.1),
+        axis.title=element_text(size=font_size+2),
+        axis.text=element_text(size=font_size))
+```
+
+
+```{r}
+ggsave('../../figures/publication/fig_2/D/danson_strains_6j_no_cor.pdf',
+       danson_strains_6j_no_cor_p, width=4, height=4, dpi=1200)
+```
+
+## E.- Cut and Tag 6J
+
+```{r}
+cnt_fd <- 'strains/cut_and_tag/'
+```
+
+```{r}
+cnt_metadata <- read_data('metadata/cut_and_tag.txt',
+                            fd='strains/',
+                            the_data_fd=the_data_fd) %>%
+  select(sample, strain, mouse_id) %>%
+  separate(
+    sample, into=c('mouse', 'antibody'), sep='_', remove = F) %>%
+  select(-mouse) %>%
+  mutate(
+    antibody=if_else(antibody=='igg', toupper(antibody), antibody)) %>%
+  mutate(
+    sample_name=paste(strain, mouse_id, antibody, sep=' - ')) %>%
+  select(sample_name, everything())
+```
+
+
+```{r}
+cnt_snps <- read_mpileup(cnt_fd, the_data_fd=the_data_fd) %>%
+  inner_join(cnt_metadata, by=c('sample')) %>%
+  mutate(aaf=num_alt/(num_ref+num_alt))
+```
+
+
+```{r}
+cnt_snps_6j <- cnt_snps %>%
+  filter(strain=='BL6J') %>%
+  filter(num_ref+num_alt>100) %>%
+  filter(antibody!='IGG') %>%
+  inner_join(haplotypes_mef %>% mutate(haplotype=adjust_haplo(haplotype)) %>%
+                 filter(! haplotype %in% c('other', 'C')),
+             by=c('pos_ref')) %>%
+  mutate(freq=if_else(allele==ref, 1-aaf, aaf)) %>%
+  select(mouse_id, pos_ref, antibody, freq, aaf, haplotype) %>%
+  pivot_wider(-aaf, names_from='antibody', values_from=freq) %>%
+  filter(!is.na(H3K27me3), !is.na(H3K9me3)) 
+```
+
+
+```{r}
+haplotype_shapes <- c(
+  'ATA'=22,
+  'ATG'=21,
+  'CCA'=23,
+  'CTA'=24
+)
+cnt_haplotypes_6j_mouse_1_p <- cnt_snps_6j %>%
+  filter(mouse_id==3) %>%
+  mutate(mouse_id=paste('Mouse', as.numeric(mouse_id)-2)) %>%
+  filter(haplotype != 'A') %>%
+  mutate(haplotype=gsub('_', '', haplotype)) %>%
+  ggplot() +
+  geom_point(aes(x=H3K27me3, y=H3K9me3, colour=haplotype,
+                 fill=haplotype, shape=haplotype),
+             alpha=0.7, stroke=1, size=3) +
+  scale_colour_manual(
+    'Haplotype',
+    values=haplotype_colours[c('ATA', 'ATG', 'CCA', 'CTA')]) +
+  scale_fill_manual(
+    'Haplotype',
+    values=haplotype_colours[c('ATA', 'ATG', 'CCA', 'CTA')]) +
+  scale_shape_manual(
+    'Haplotype',
+    values=haplotype_shapes[c('ATA', 'ATG', 'CCA', 'CTA')]) +
+  scale_x_continuous('Frequency in H3K27me3',
+                     limits=c(0, 1),
+                     breaks=c(0, 0.5, 1),
+                     labels=c('', 0.5, 1)) +
+  scale_y_continuous('Frequency in H3K9me3',
+                     limits=c(0, 1),
+                     breaks=c(0, 0.5, 1),
+                     labels=c('', 0.5, 1)) +
+  coord_fixed() +
+  theme_bw() +
+  theme(panel.spacing=unit(0.15, 'lines'),
+        panel.grid=element_blank(),
+        panel.border=element_rect(size=1.1),
+        strip.background=element_blank(),
+        strip.text=element_blank(),
+        axis.title=element_text(size=font_size+2),
+        axis.text=element_text(size=font_size),
+        legend.position=c(0.875, 0.8),        
+        legend.background = element_rect(colour='black', 
+                                         size=0.2, 
+                                         fill='transparent'),
+        legend.title=element_blank(),
+        legend.text=element_text(size=font_size-2),
+        legend.spacing.x = unit(0.1, 'lines'),
+        legend.box.margin=margin(-7,-7,-7,-7),
+        legend.margin = margin(t=0, b=5, l=5, r=5),
+        legend.key.size = unit(0.95, 'lines')) 
+```
+
+```{r}
+fig_2d_fd <- '../../figures/accepted/fig_2/'
+dir.create(fig_2d_fd, showWarnings = FALSE, recursive = T)
+ggsave(paste0(fig_2d_fd, 'D_cnt_haplotypes_6j_mouse_1.pdf'),
+       cnt_haplotypes_6j_mouse_1_p, width=4, height=4, dpi=1200)
+```
+
+```{r}
+haplotype_shapes <- c(
+  'ATA'=22,
+  'ATG'=21,
+  'CCA'=23,
+  'CTA'=24
+)
+cnt_haplotypes_6j_mouse_4_p <- cnt_snps_6j %>%
+  filter(mouse_id==6) %>%
+  mutate(mouse_id=paste('Mouse', as.numeric(mouse_id)-2)) %>%
+  filter(haplotype != 'A') %>%
+  mutate(haplotype=gsub('_', '', haplotype)) %>%
+  ggplot() +
+  geom_point(aes(x=H3K27me3, y=H3K9me3, colour=haplotype,
+                 fill=haplotype, shape=haplotype),
+             alpha=0.7, stroke=1, size=3) +
+  geom_text(aes(label=mouse_id), x=0.85, y=0.95, size=5,
+            data=data.frame(mouse_id=c('Mouse 4'))) + 
+  facet_grid(rows=vars(mouse_id)) +
+  scale_colour_manual('Haplotype', values=haplotype_colours) +
+  scale_fill_manual('Haplotype', values=haplotype_colours) +
+  scale_shape_manual('Haplotype', values=haplotype_shapes) +
+  scale_x_continuous('Frequency in H3K27me3',
+                     limits=c(0, 1),
+                     breaks=c(0, 0.5, 1),
+                     labels=c('', 0.5, 1)) +
+  scale_y_continuous('Frequency in H3K9me3',
+                     limits=c(0, 1),
+                     breaks=c(0, 0.5, 1),
+                     labels=c('', 0.5, 1)) +
+  coord_fixed() +
+  theme_bw() +
+  theme(panel.spacing=unit(0.15, 'lines'),
+        panel.grid=element_blank(),
+        panel.border=element_rect(size=1.1),
+        strip.background=element_blank(),
+        strip.text=element_blank(),
+        axis.title=element_text(size=font_size+2),
+        axis.text=element_text(size=font_size),
+        legend.position='bottom',
+        legend.title=element_text(face='bold', size=font_size),
+        legend.text=element_text(size=font_size-1),
+        legend.spacing.x = unit(0.1, 'lines'),
+        legend.box.margin=margin(-7,-7,-7,-7)) 
+```
+
+```{r}
+fig_2e_fd <- '../../figures/publication/fig_2/E/'
+dir.create(fig_2e_fd, showWarnings = FALSE, recursive = T)
+ggsave(paste0(fig_2e_fd, 'cnt_haplotypes_6j_mouse_4.pdf'),
+       cnt_haplotypes_6j_mouse_4_p, width=4, height=4, dpi=1200)
+```
+
+
+## D.- UBTF binding
+
+```{r, echo=F, message=F}
+diesch_fd <- 'public/ubtf/diesch/'
+diesch_chip_fd <- paste0(diesch_fd, 'chip/')
+diesch_rna_fd <- paste0(diesch_fd, 'rna/')
+```
+
+```{r}
+diesch_metadata_chip <- read_data(
+  'metadata/chip.txt', fd=diesch_fd, the_data_fd=the_data_fd) %>%
+  filter(Genotype=='wild type') %>%
+  mutate(replicate=case_when(
+    `Sample Name`=='GSM3500757' ~ '1',
+    `Sample Name`=='GSM3500758' ~ '2',
+    TRUE ~ 'Input')) %>%
+  select(Run, BioSample, chip_antibody, replicate)
+```
+
+```{r}
+diesch_chip <- read_snps_lofreq(
+  'lofreq', fn='many',
+  data_fd=paste0(the_data_fd, diesch_chip_fd)) %>%
+  mutate(snp_pos=adjust_pos(pos, 3008)) %>%
+  inner_join(diesch_metadata_chip,
+             by=c('sample'='Run')) 
+```
+
+```{r}
+diesch_haplotype_chip <- diesch_chip %>%
+    inner_join(haplotypes_mef %>% mutate(haplotype=adjust_haplo(haplotype)),
+               by=c('snp_pos'='pos_ref')) %>%
+    filter(haplotype!='other', ref==allele | alt==allele) %>%
+    mutate(num_ref=dp*(1-af), 
+           num_alt=dp*af,
+           num_haplo=if_else(allele==ref, num_ref, num_alt),
+           num_pos=(num_ref+num_alt)) %>%
+  group_by(BioSample, chip_antibody, replicate, haplotype) %>%
+  summarise(freq_reads=sum(num_haplo)/sum(num_pos), .groups='drop')
+```
+
+```{r}
+diesch_rel_read_freqs_haplotype_chip <- diesch_haplotype_chip %>%
+  filter(chip_antibody != 'none') %>%
+  inner_join(
+    diesch_haplotype_chip %>%
+      filter(chip_antibody == 'none') %>% 
+      select(haplotype, freq_reads_input=freq_reads),
+    by=c('haplotype')) %>%
+  mutate(rel_freq=freq_reads/freq_reads_input,
+         log_rel_freq=log10(rel_freq))
+```
+
+```{r}
+font_size <- 12
+diesch_p <- diesch_rel_read_freqs_haplotype_chip %>%
+  mutate(haplotype=gsub('_', '', haplotype)) %>%
+  ggplot() +
+  geom_point(aes(x=haplotype, y=rel_freq, colour=haplotype, fill=haplotype,
+                 shape=replicate, group=replicate),
+             size=3.5, alpha=0.7, stroke=1,
+             position=position_dodge(width=0.8)) +
+  theme_bw() +
+  labs(x='', y='Relative Frequency in ChIP-Seq\nUBTF vs. input') +
+  scale_colour_manual('Haplotype', values=haplotype_colours, guide=F) +
+  scale_fill_manual('Haplotype', values=haplotype_colours, guide=F) +
+  scale_shape_manual('Replicate', values=c('1'=21, '2'=22)) +
+  scale_y_continuous(limits=c(-0.1, 3.2),
+                     labels=c('', 1, 2, 3)) +
+  theme(legend.position='bottom',
+        panel.border=element_rect(size=1.1),
+        panel.grid=element_blank(),
+        axis.text.x=element_text(size=font_size),
+        axis.text.y=element_text(size=font_size),
+        axis.title.y=element_text(size=font_size+2),
+        axis.title.x=element_blank(),
+        legend.spacing.x = unit(0.1, 'lines'),
+        legend.box.margin=margin(-7, -7, -7, -7),
+        legend.title=element_text(size=font_size, face='bold'),
+        legend.text=element_text(size=font_size))
+```
+
+
+```{r}
+fig_2f_fd <- '../../figures/publication/fig_2/F/'
+dir.create(fig_2f_fd, showWarnings = FALSE, recursive = T)
+ggsave(paste0(fig_2f_fd, 'diesch.pdf'),
+       diesch_p, width=4, height=4, dpi=1200)
+```
+
+```{r}
+font_size <- 12
+diesch_no_ac_p <- diesch_rel_read_freqs_haplotype_chip %>%
+  mutate(haplotype=gsub('_', '', haplotype)) %>%
+  filter(! haplotype %in% c('A', 'C')) %>%
+  ggplot() +
+  geom_point(aes(
+    x=haplotype, y=rel_freq,
+    colour=haplotype, fill=haplotype,
+    shape=replicate, group=replicate),
+    size=3.5, alpha=0.7, stroke=1,
+    position=position_dodge(width=0.8)) +
+  theme_bw() +
+  labs(x='',
+       y='Relative Frequency in ChIP-Seq\nUBTF vs. input') +
+  scale_colour_manual(
+    'Haplotype', values=haplotype_colours, guide=F) +
+  scale_fill_manual(
+    'Haplotype', values=haplotype_colours, guide=F) +
+  scale_shape_manual(
+    'Replicate', values=c('1'=21, '2'=22)) +
+  scale_y_continuous(limits=c(-0.1, 3.2),
+                     labels=c('', 1, 2, 3)) +
+  theme(panel.border=element_rect(size=1.1),
+        panel.grid=element_blank(),
+        axis.text.x=element_text(size=font_size),
+        axis.text.y=element_text(size=font_size),
+        axis.title.y=element_text(size=font_size+2),
+        axis.title.x=element_blank(),
+        legend.spacing.x = unit(0.1, 'lines'),
+        legend.box.margin=margin(-7, -7, -7, -7),
+        legend.title=element_text(size=font_size, face='bold'),
+        legend.text=element_text(size=font_size-1))
+```
+
+,
+        legend.position=c(0.75, 0.825),        
+        legend.background = element_rect(colour='black', 
+                                         size=0.2, 
+                                         fill='transparent'),
+        legend.margin = margin(t=5, b=5, l=5, r=5),
+        legend.key.size = unit(0.95, 'lines')
+
+```{r}
+fig_2_fd <- '../../figures/accepted/fig_2/'
+ggsave(paste0(fig_2_fd, 'E_diesch_no_ac.pdf'),
+       diesch_no_ac_p, width=4, height=4, dpi=1200)
+```
+
+
+## Supplementary 
+
+
+### Strains Nanopore
+
+```{r}
+strains_np_variants_6j <- read_tsv(
+  paste0(the_data_fd, 'strains/nanopore/megalodon/barcode04/per_read_variant_calls.txt'),
+  col_types=cols()) %>%
+  filter(chrm=='BK000964.3_looped_3008') %>%
+  mutate(pos=pos+1,
+         pos_ref=adjust_pos(pos, 3008)) %>%
+  select(read_id, pos_ref, pos, ref=ref_seq, ref_prob=ref_log_prob,
+         alt=alt_seq, alt_prob=alt_log_prob) %>%
+  # mutate(ref_prob=exp(ref_prob), alt_prob=exp(alt_prob)) %>%
+  pivot_longer(c(ref_prob, alt_prob), values_to='prob', names_to='dominant') %>%
+  filter(prob>log(0.9)) %>%
+  group_by(read_id, pos, pos_ref, ref, alt) %>%
+  filter(n()==1) %>%
+  mutate(dominant=gsub('_prob', '', dominant),
+         allele=if_else(dominant=="ref", ref, alt)) %>%
+  ungroup() %>%
+  select(read_id, pos_ref, allele) %>%
+  distinct() %>%
+  group_by(read_id) %>%
+  filter(n_distinct(pos_ref)==n()) %>%
+  group_by(pos_ref) %>%
+  filter(n_distinct(allele) > 1) %>%
+  mutate(allele_num=dense_rank(allele)) %>%
+  ungroup()
+```
+
+```{r}
+strains_np_haplotypes_6j <- strains_np_variants_6j %>%
+  inner_join(haplotypes_mef %>%
+               mutate(haplotype=gsub('_', '',
+                                     adjust_haplo(haplotype))),
+             by=c('pos_ref', 'allele')) %>%
+  filter(haplotype %in% c('ATA', 'ATG', 'CCA', 'CTA'))
+```
+
+```{r}
+strains_np_haplotypes_6j %>%
+  group_by(read_id) %>%
+  mutate(num_haplos=n_distinct(haplotype)) %>%
+  filter(num_haplos==1) %>%
+  ungroup()
+```
+```{r}
+strains_np_meth_6j <- read_tsv(
+  paste0(the_data_fd, 'strains/nanopore/megalodon/barcode04/per_read_modified_base_calls.txt'),
+  col_types=cols()) %>%
+  filter(chrm=='BK000964.3_looped_3008') %>%
+  mutate(pos=if_else(strand=='1', pos+1, pos),
+         pos_ref=adjust_pos(pos, 3008)) %>%
+  mutate(mod_prob=exp(mod_log_prob), can_prob=exp(can_log_prob)) %>%
+  pivot_longer(c(mod_prob, can_prob),
+               values_to='prob', names_to='dominant') %>%
+  filter(prob>0.9) %>%
+  mutate(meth=if_else(dominant=="mod_prob", 1, 0)) %>%
+  ungroup()
+```
+
+```{r}
+set.seed(10)
+strains_np_meth_units_6j_p <- strains_np_haplotypes_6j %>%
+  select(read_id, haplotype) %>%
+  distinct() %>%
+  inner_join(strains_np_meth_6j %>%
+               select(read_id, pos_ref, meth),
+             by=c('read_id')) %>%
+  filter(pos_ref >= -1000, pos_ref <= 13341) %>%
+  group_by(read_id) %>%
+  group_by(read_id, haplotype) %>%
+  summarise(meth=mean(meth), .groups='drop') %>%
+  mutate(haplotype=gsub('_', '', haplotype)) %>%
+  ggplot(aes(x=1, y=meth)) +
+  stat_summary(aes(group=haplotype, colour=haplotype),
+               fun=median, fun.min=median, fun.max=median, width=1,
+               geom='crossbar', alpha=0.3) +
+  geom_jitter(aes(fill=haplotype),
+              shape=21, alpha=0.7) +
+  facet_grid(cols=vars(haplotype)) +
+  theme_bw() +
+  scale_fill_manual(name='Haplotype', values=haplotype_colours) +
+  scale_colour_manual(name='Haplotype', values=haplotype_colours) +
+  scale_y_continuous(
+    limits=c(-0.01, 1.01),
+    breaks=c(0, 0.5, 1),
+    labels=c('', 0.5, 1)) +
+  theme_bw() +
+  labs(x='', y='Mean Methylation per Read') +
+  theme(legend.position='None',
+        panel.grid=element_blank(),
+        panel.border=element_rect(size=1.1),
+        panel.spacing=unit(0.2, 'lines'),
+        strip.background=element_blank(),
+        strip.text=element_text(size=12),
+        axis.text=element_text(size=12),
+        axis.text.x=element_blank(),
+        axis.ticks.x=element_blank(),
+        axis.title=element_text(size=14),
+        axis.title.x=element_blank())
+```
+
+```{r}
+ggsave('../../figures/publication/supp/strains_np_meth_units_6j.pdf',
+       strains_np_meth_units_6j_p, height=3, width=6.5, dpi=1200)
+```
+
+### 6J haplotype frequency correlations
+
+```{r}
+strains_allele_freqs_6j <- strains_snps_6j %>%
+  inner_join(haplotypes_mef, by=c('snp_pos'='pos_ref')) %>%
+  filter(! haplotype %in% c('other', 'C')) %>%
+  mutate(allele_freq=if_else(allele==ref, ref_prop_exp, 1-ref_prop_exp)) %>%
+  select(id, snp_pos, haplotype, allele_freq) %>%
+  mutate(haplotype=adjust_haplo(haplotype),
+         haplotype=gsub('_', '', haplotype))
+```
+
+```{r}
+strains_allele_freqs_6j_p <- strains_allele_freqs_6j %>% 
+  full_join(strains_allele_freqs_6j,
+            by=c('id', 'haplotype'),
+            suffix=c('_1', '_2'))  %>%
+  filter(snp_pos_1 < snp_pos_2) %>%
+  mutate(mouse_id=paste('Mouse', as.numeric(id)-2)) %>%
+  ggplot(aes(x=allele_freq_1, y=allele_freq_2)) +
+  geom_segment(x=-Inf, xend=Inf, y=-Inf, yend=Inf, colour='grey90', alpha=0.6) +
+  geom_point(aes(fill=haplotype, shape=haplotype), alpha=0.6, stroke=0.7) +
+  stat_cor(size=3) +
+  facet_grid(cols=vars(mouse_id)) +
+  scale_x_continuous(limits=c(0,1), breaks=c(0, 0.5, 1), labels=c('', 0.5, 1)) +
+  scale_y_continuous(limits=c(0,1), breaks=c(0, 0.5, 1), labels=c('', 0.5, 1)) +
+  scale_fill_manual('Haplotype', values=haplotype_colours) +
+  scale_shape_manual('Haplotype', values=c(haplotype_shapes, 'A'=25)) +
+  labs(x='AF of SNP 1', y='AF of SNP 2') +
+  theme_bw() +
+  theme(aspect.ratio=1,
+        panel.grid=element_blank(),
+        panel.border=element_rect(size=1.1),
+        panel.spacing=unit(0.2, 'lines'),
+        strip.background=element_blank(),
+        strip.text=element_text(size=12),
+        axis.text=element_text(size=12),
+        axis.title=element_text(size=14),
+        legend.position='bottom',
+        legend.title=element_text(size=font_size, face='bold'),
+        legend.text=element_text(size=font_size),
+        legend.box.margin=margin(-7,-7,-7,-7))
+```
+
+```{r}
+ggsave('../../figures/publication/fig_1/E/supp/strains_allele_freqs_6j.pdf',
+       strains_allele_freqs_6j_p, height=4, width=6.5, dpi=1200)
+```
+
+
+
+### 6J Haplotype CpG methylation
+
+```{r}
+strains_6j_a_meth_p <- strains_wgbs_meth_6j_cpg %>%
+  mutate(haplotype=gsub('_', '', haplotype),
+         mouse_id=paste('Mouse',
+                        as.numeric(gsub('S', '', sample)) - 14 )) %>%
+  filter(haplotype %in% c('A', 'ATA', 'ATG')) %>%
+  ggplot() +
+  geom_boxplot(aes(x=haplotype, y=meth, fill=haplotype),
+               outlier.shape=21, size=0.7, alpha=0.8) +
+  facet_grid(. ~ mouse_id) +
+  scale_fill_manual('', values=haplotype_colours) +
+  scale_y_continuous(
+    limits=c(0, 1), breaks=c(0, 0.5, 1), labels=c('', 0.5, 1)) +
+  labs(x='', y='Methylation Level') +
+  theme_bw() +
+  theme(legend.position='none',
+        panel.grid=element_blank(),
+        panel.spacing=unit(0.2, 'lines'),
+        panel.border=element_rect(size=1),
+        strip.background=element_blank(),
+        strip.text=element_text(size=12),
+        axis.text=element_text(size=12),
+        axis.title=element_text(size=14))
+```
+
+```{r}
+ggsave('../../figures/publication/fig_2/B/strains_6j_a_meth.pdf',
+       strains_6j_a_meth_p, height=4, width=8, dpi=1200)
+```
+
+### 6J Haplotype frequency vs methylation
+
+```{r}
+strains_6j_haplo <- strains_wgbs_meth_6j_cpg %>%
+  mutate(haplotype=gsub('_', '', haplotype),
+         mouse_id=paste('Mouse',
+                        as.numeric(gsub('S', '', sample)) - 14 )) %>%
+  filter(! haplotype %in% c('other', 'C')) %>%
+  group_by(sample, mouse_id, haplotype) %>%
+  summarise(meth=mean(meth), .groups='drop') %>%
+  inner_join(
+    strains_allele_freqs_6j %>%
+    mutate(mouse_id=paste('Mouse', as.numeric(id) -2 ))  %>%
+    group_by(mouse_id, haplotype) %>%
+    summarise(freq=mean(allele_freq), .groups='drop'),
+    by=c('mouse_id', 'haplotype'))
+```
+
+
+```{r}
+strains_6j_haplo %>%
+    ggplot(aes(x=freq, y=meth, fill=haplotype)) +
+    geom_point(shape=21, alpha=0.6, stroke=0.7) +
+    stat_cor(size=3, label.x = 0.05, label.y=0.95) +
+    facet_grid(cols=vars(haplotype)) +
+    scale_x_continuous(limits=c(0,1), breaks=c(0, 0.5, 1), labels=c('', 0.5, 1)) +
+    scale_y_continuous(limits=c(0,1), breaks=c(0, 0.5, 1), labels=c('', 0.5, 1)) +
+    scale_fill_manual('', values=haplotype_colours) +
+    labs(x='Haplotype Frequency in WGS', y='Methylation Level') +
+    theme_bw() +
+    theme(aspect.ratio=1,
+          panel.grid=element_blank(),
+          panel.border=element_rect(size=1.1),
+          panel.spacing=unit(0.2, 'lines'),
+          strip.background=element_blank(),
+          strip.text=element_text(size=12),
+          axis.text=element_text(size=12),
+          axis.title=element_text(size=14),
+          legend.position='none')
+```
+
+
+
+
+
+### S2.A - Incorporation of variants in polysomes
+
+
+```{r}
+mef_poly_fd <- 'mef_poly/'
+```
+
+```{r}
+mef_poly_metadata <- read_csv(
+  paste0(the_data_fd, mef_poly_fd, 'metadata/metadata.txt'),
+  col_types=cols()) %>%
+  mutate(Condition=paste(fraction, condition, sep=' - '))
+```
+
+```{r}
+mef_poly_lofreq <- read_snps_lofreq(
+  'lofreq', fn='many',
+  data_fd=paste0(the_data_fd, mef_poly_fd)) %>%
+  mutate(snp_pos=adjust_pos(pos, 3008)) %>%
+  inner_join(mef_poly_metadata,
+             by=c('sample')) %>%
+  filter(snp_pos==12736)
+```
+
+
+```{r}
+mef_poly_mpileup <- read_mpileup(mef_poly_fd, the_data_fd=the_data_fd) %>%
+  inner_join(mef_poly_metadata,
+             by=c('sample'))
+```
+
+```{r}
+danson_mrna_fd <- 'danson/mrna/'
+```
+
+```{r}
+danson_mrna_metadata <- read_data('metadata/metadata.csv',
+                                  fd=danson_mrna_fd,
+                                  the_data_fd=the_data_fd) %>%
+  filter(tissue=='liv')
+```
+
+```{r}
+danson_mrna_lofreq <- read_snps_lofreq(
+  'lofreq', fn='many',
+  data_fd=paste0(the_data_fd, danson_mrna_fd)) %>%
+  mutate(snp_pos=adjust_pos(pos, 3008)) %>%
+  inner_join(danson_mrna_metadata,
+             by=c('sample')) %>%
+  filter(tissue=='liv',
+         snp_pos==12736)
+```
+
+
+```{r}
+danson_poly_fd <- 'danson/poly/'
+```
+
+```{r}
+danson_poly_metadata <- read_data('metadata/metadata.csv',
+                                  fd=danson_poly_fd,
+                                  the_data_fd=the_data_fd) %>%
+  filter(tech=='Depleted') %>%
+  select(-tech)
+```
+
+
+```{r randomly_select_poly_samples}
+set.seed(10)
+
+danson_poly_samples <- read_csv(
+  file.path(the_data_fd, danson_poly_fd, 'snps', 'snps_no_s1.csv'),
+  col_types=cols()) %>%
+  inner_join(danson_poly_metadata, by=c('sample')) %>%
+  select(mouse_id, everything(), -sample) %>%
+  mutate(cov=ref_fw+ref_rv+alt_fw+alt_rv,
+         aaf=((alt_fw+alt_rv)/cov)) %>%
+  arrange(mouse_id, pos) %>%
+  filter(pos==12736) %>%
+  select(mouse_id, snp_pos=pos, poly=aaf) %>%
+  inner_join(danson_mrna_lofreq %>%
+               select(mouse_id, snp_pos, input=af),
+             by=c('mouse_id', 'snp_pos')) %>%
+  sample_n(4) %>% pull(mouse_id)
+```
+
+```{r}
+danson_poly_lofreq <- read_snps_lofreq(
+  'lofreq', fn='many',
+  data_fd=paste0(the_data_fd, danson_poly_fd)) %>%
+  mutate(snp_pos=adjust_pos(pos, 3008)) %>%
+  inner_join(danson_poly_metadata,
+             by=c('sample')) %>%
+  filter(mouse_id %in% danson_poly_samples,
+         snp_pos==12736)
+```
+
+
+
+
+```{r}
+poly_rna_snps <- danson_poly_lofreq %>% 
+    select(mouse_id, snp_pos, poly=af) %>%
+    inner_join(danson_mrna_lofreq %>%
+                   select(mouse_id, snp_pos, input=af),
+               by=c('mouse_id', 'snp_pos')) %>%
+  select(-mouse_id) %>%
+  mutate(tissue='Liver') %>%
+  bind_rows(mef_poly_lofreq %>%
+              filter(snp_pos==12736,
+                     condition=='Control',
+                     fraction %in% c('Input', 'Polysome')) %>%
+              select(snp_pos, fraction, aaf=af) %>%
+              pivot_wider(names_from=fraction, values_from=aaf) %>% 
+              rename(input=Input, poly=Polysome) %>%
+              mutate(tissue='MEF'))
+```
+
+
+```{r}
+font_size <- 12
+poly_rna_p <- poly_rna_snps %>%
+  ggplot(aes(x=input, y=poly,  colour=tissue, fill=tissue, shape=tissue)) +
+  geom_segment(x=-Inf, xend=Inf, y=-Inf, yend=Inf,
+               colour='grey90', alpha=0.7) +
+  geom_point(size=3, alpha=0.7, stroke=1) +
+  stat_cor(aes(x=input, y=poly), inherit.aes=F,
+           label.y.npc=0.1, label.x.npc=0.4 ) +
+  labs(x='12736 G frequency in Input RNA',
+       y='12736 G frequency in Polysomes') +
+  scale_y_continuous(limits=c(0, 0.4),
+                     breaks=c(0, 0.2, 0.4),
+                     labels=c('', 0.2, 0.4)) +
+  scale_x_continuous(limits=c(0, 0.4),
+                     breaks=c(0, 0.2, 0.4),
+                     labels=c('', 0.2, 0.4)) +
+  scale_colour_manual('Tissue', values=c(
+    'MEF'='grey20', 'Liver'='grey50')) +
+  scale_fill_manual('Tissue', values=c(
+    'MEF'='grey20', 'Liver'='grey50')) +
+  scale_shape_manual('Tissue', values=c('MEF'=21, 'Liver'=22)) +
+  theme_bw() +
+  theme(aspect.ratio=1,
+        panel.grid=element_blank(),
+        panel.border=element_rect(size=1.1),
+        axis.title=element_text(size=font_size+2),
+        axis.text=element_text(size=font_size),
+        legend.position='bottom',
+        legend.spacing.x = unit(0.1, 'lines'),
+        legend.box.margin=margin(-10, -10, -10, -10),
+        legend.title=element_text(size=font_size, face='bold'),
+        legend.text=element_text(size=font_size))
+```
+
+```{r}
+ggsave('../../figures/publication/fig_2/A/supp/poly_rna.pdf',
+       poly_rna_p, width=4, height=4.2, dpi=1200)
+```
+
+
+### S8.- mRNA vs rRNA
+
+```{r}
+danson_mrna_metadata_mus <- read_data('metadata/metadata.csv',
+                                  fd=danson_mrna_fd,
+                                  the_data_fd=the_data_fd) %>%
+  filter(tissue=='mus')
+```
+
+```{r}
+danson_mrna_lofreq_mus <- read_snps_lofreq(
+  'lofreq', fn='many',
+  data_fd=paste0(the_data_fd, danson_mrna_fd)) %>%
+  mutate(snp_pos=adjust_pos(pos, 3008)) %>%
+  inner_join(danson_mrna_metadata_mus,
+             by=c('sample')) 
+```
+
+```{r}
+danson_mrna_rrna <- danson_mrna_lofreq_mus %>%
+  mutate(pos_ref=adjust_pos(pos)) %>%
+  inner_join(
+    danson_rna_many %>%
+      mutate(pos_ref=adjust_pos(pos, 3008)) %>%
+      inner_join(danson_rrna_metadata, by=c('sample')) %>%
+      filter(tissue=='mus'),
+    by=c('mouse_id', 'pos_ref', 'alt'),
+    suffix=c('_mrna', '_rrna')) %>%
+  select(mouse_id, pos_ref, alt, starts_with('af'))
+```
+
+```{r}
+danson_mrna_rrna_p <- danson_mrna_rrna %>%
+  ggplot(aes(x=af_rrna, y=af_mrna)) +
+  geom_segment(aes(x=-Inf, xend=Inf, y=-Inf, yend=Inf),
+               size=0.5, alpha=0.4, color='grey50') +
+  geom_point(alpha=0.7) +
+  stat_cor(method = 'pearson',
+           label.x.npc=0.25,
+           label.y.npc=0.1,
+           show.legend=F, size=3) +
+  facet_wrap(.~mouse_id, nrow=6) +
+  theme_bw() +
+  scale_x_continuous(
+    limits=c(0, 1),
+    breaks=c(0, 0.5, 1),
+    labels=c('', 0.5, 1)) +
+  scale_y_continuous(
+    limits=c(0, 1),
+    breaks=c(0, 0.5, 1),
+    labels=c('', 0.5, 1)) +
+  labs(x='AAF in rRNA-Seq', y='AAF in mRNA-Seq') +
+  theme(panel.grid=element_blank(),
+        strip.background=element_blank(),
+        panel.border=element_rect(size=1.1))
+```
+
+```{r}
+ggsave('../../figures/publication/supp/danson_mrna_rrna.pdf',
+       danson_mrna_rrna_p, width=8, height=12, dpi=1200)
+```
+
+### S2.E.- Cut&Tag 6J
+
+```{r}
+cnt_cov <- read_data('covs/covs_rdna.csv',
+                     fd=cnt_fd, the_data_fd='../../data/') %>%
+  inner_join(cnt_metadata, by=c('sample')) %>%
+  mutate(pos_ref=adjust_pos(pos, 3008)) %>%
+  separate(sample_name, into=c('strain', 'mouse_id', 'antibody'),
+             sep = ' - ', remove=F) 
+```
+
+```{r}
+cnt_6j_1_p <- plot_cnt_covs(cnt_cov %>%
+                mutate(mouse=paste('Mouse', as.numeric(mouse_id)-2)),
+              the_strain='BL6J', the_mouse='Mouse 1')
+```
+
+```{r}
+cnt_6j_4_p <- plot_cnt_covs(cnt_cov %>%
+                mutate(mouse=paste('Mouse', as.numeric(mouse_id)-2)),
+              the_strain='BL6J', the_mouse='Mouse 4')
+```
+
+
+```{r}
+cnt_6j_p <- cnt_6j_1_p / cnt_6j_4_p
+```
+
+```{r}
+ggsave('../../figures/publication/fig_2/C/supp/cnt_cov_6j_p.pdf',
+       cnt_6j_p, width=8, height=6, dpi=1200)
+```
+
+### Diesch Expression
+
+```{r}
+diesch_metadata_rna <- read_data('metadata/rna.txt',
+                                 fd=diesch_fd, the_data_fd=the_data_fd) %>%
+  filter(Genotype=='wild type') %>%
+  mutate(replicate=case_when(
+    `Sample Name`=='GSM1720993' ~ 'Replicate 1',
+    `Sample Name`=='GSM1720994' ~ 'Replicate 2')) %>%
+  select(Run, BioSample, replicate)
+```
+
+```{r}
+diesch_rna <- read_snps_lofreq(
+  'lofreq', fn='many',
+  data_fd=paste0(the_data_fd, diesch_rna_fd)) %>%
+  mutate(snp_pos=adjust_pos(pos, 3008)) %>%
+  inner_join(diesch_metadata_rna,
+             by=c('sample'='Run')) 
+```
+
+```{r}
+diesch_rna_freqs <- bind_rows(
+  diesch_rna %>%
+    inner_join(haplotypes_mef %>% mutate(haplotype=adjust_haplo(haplotype)),
+               by=c('snp_pos'='pos_ref')) %>%
+    filter(snp_pos < 9005, haplotype!='other', ref==allele | alt==allele) %>%
+    mutate(num_ref=dp*(1-af), 
+           num_alt=dp*af,
+           num_haplo=if_else(allele==ref, num_ref, num_alt),
+           num_pos=(num_ref+num_alt)) %>%
+    group_by(BioSample, replicate, haplotype) %>%
+    summarise(freq_reads=sum(num_haplo)/sum(num_pos), .groups='drop') %>%
+    filter(haplotype %in% c('A_T_A', 'A_T_G')),
+  diesch_haplotype_chip %>% 
+    filter(replicate=='Input', haplotype %in% c('A_T_A', 'A_T_G')) %>%
+    select(-chip_antibody))
+```
+
+```{r}
+diesch_rna_p <- diesch_rna_freqs %>%
+  pivot_wider(names_from=haplotype, values_from=freq_reads) %>%
+  mutate(ratio=`A_T_A`/`A_T_G`) %>%
+  mutate(tech=if_else(replicate=='Input', 'DNA', 'RNA')) %>%
+  ggplot() +
+  geom_point(aes(x=tech, y=ratio),
+             shape=21, alpha=0.7, size=3, fill='grey10', stroke=1) +
+  theme_bw() +
+  labs(x='', y='Relative ATA vs. ATG Frequency') +
+  scale_y_continuous(limits=c(-0.1, 2.2),
+                     breaks=c(0, 1, 2),
+                     labels=c('', 1, 2)) +
+  theme(legend.position='bottom',
+        panel.border=element_rect(size=1.1),
+        panel.grid=element_blank(),
+        axis.text.x=element_text(size=font_size),
+        axis.text.y=element_text(size=font_size),
+        axis.title.y=element_text(size=font_size+2),
+        axis.title.x=element_blank(),
+        legend.spacing.x = unit(0.1, 'lines'),
+        legend.box.margin=margin(-7, -7, -7, -7),
+        legend.title=element_text(size=font_size, face='bold'),
+        legend.text=element_text(size=font_size))
+```
+
+```{r}
+ggsave('../../figures/publication/fig_2/D/diesch_rna.pdf',
+       diesch_rna_p, width=2, height=4.2, dpi=1200)
+```

@@ -1,0 +1,1083 @@
+---
+title: "Figure 4.- Beyond C57BL/6J"
+---
+
+## 0.- Setup
+
+```{r, echo=F, message=F}
+the_data_fd <- '../../data/'
+source('../../scripts/setup.R')
+source('../../scripts/haplotypes.R')
+library(patchwork)
+```
+
+## Strains
+
+```{r}
+strains_wgbs_fd <- 'strains/wgbs/'
+strains_wgs_fd <- 'strains/wgs/'
+```
+
+
+```{r}
+strains_metadata <- readxl::read_excel(
+  '../../data/strains/metadata/sampleID_mouseID.xlsx') %>%
+  mutate(strain=substr(`Mouse ID`, 1, nchar(`Mouse ID`)-1),
+         id=substr(`Mouse ID`, nchar(`Mouse ID`), nchar(`Mouse ID`))) %>%
+  select(-`Mouse ID`)
+```
+
+
+```{r}
+strains_samples_plot <- tribble(
+  ~strain, ~id, ~pos_plot,
+  '129S', '3', 1,
+  'AJ', '1', 6,
+  'BL6J', '3', 3,
+  'BL6N', '1', 4,
+  'C3H', '6', 2,
+  'CAST', '4', 5
+)
+```
+
+```{r}
+strains_snps <- read_snps(strains_wgbs_fd, the_data_fd='../../data/') %>%
+  inner_join(strains_metadata, by=c('sample'))
+```
+
+### A.- Strains epivariants
+
+```{r}
+strains_wgbs_raw <- read_blink(strains_wgbs_fd, the_data_fd=the_data_fd) %>%
+  inner_join(strains_metadata, by=c('sample'))
+```
+
+
+```{r}
+strains_meth <- strains_wgbs_raw %>%
+  group_by(sample, snp_pos, snp_allele, meth_pos) %>%
+  filter(n()>=10) %>%
+  group_by(sample, strain, id, snp_pos, meth_pos) %>%
+  filter(n()>=50, n_distinct(snp_allele)>1) %>%
+  group_by(sample, strain, id, snp_pos, snp_allele, meth_pos) %>%
+  summarise(meth=sum(meth_state=='+')/n(), .groups='drop')
+```
+
+```{r}
+strains_meth_sig_filt <- strains_meth %>%
+    group_by(sample, strain, id, snp_pos) %>%
+    mutate(group=if_else(snp_allele==min(snp_allele), 'm', 'M')) %>%
+    do(w = wilcox.test(meth ~ group, data=., exact=FALSE)) %>%
+    summarise(sample, strain, id, snp_pos, pval=w$p.value, .groups='drop') %>%
+    group_by(sample) %>%
+    mutate(padj=p.adjust(pval, method = 'fdr')) %>%
+    group_by(strain, snp_pos) %>%
+    summarise(num_sig=sum(padj<0.01), num_samples=n()) %>%
+    filter(num_samples>=3, num_sig>num_samples/2)
+```
+
+```{r}
+strains_epivariants_filt <- strains_meth %>%
+  inner_join(strains_meth_sig_filt,
+             by=c('strain', 'snp_pos')) %>%
+    group_by(sample, strain, id, snp_pos, snp_allele) %>%
+    summarise(meth=mean(meth), .groups='drop') %>%
+  arrange(snp_pos) %>%
+  group_by(snp_pos) %>%
+  mutate(face=case_when(
+      (snp_pos >= coding_regions_m[1,]$start &
+         snp_pos <= coding_regions_m[1,]$end) |
+          (snp_pos >= coding_regions_m[2,]$start &
+             snp_pos <= coding_regions_m[2,]$end) |
+          (snp_pos >= coding_regions_m[3,]$start &
+             snp_pos <= coding_regions_m[3,]$end) ~ 'bold',
+      TRUE ~ 'plain')) %>%
+  ungroup() %>%
+  filter(snp_pos>-1000) %>%
+  mutate(snp_pos=as.factor(snp_pos))
+``` 
+
+```{r}
+strains_epivariants_allele <- strains_epivariants_filt %>%
+  group_by(strain, snp_pos, snp_allele) %>%
+  summarise(meth=median(meth), .groups='drop') %>%
+  group_by(strain, snp_pos) %>%
+  filter(meth==max(meth)) %>%
+  select(-meth) %>%
+  ungroup() %>%
+  arrange(strain) 
+```
+
+```{r}
+strains_epivariants_filt_table <- strains_epivariants_allele %>%
+  group_by(strain) %>%
+  mutate(strain=case_when(
+         strain=="129S" ~ "129S1/SvImJ",
+         strain=="AJ" ~ "A/J",
+         strain=="C3H" ~ "C3H/HeJ",
+         strain=="BL6N" ~ "C57BL/6N",
+         strain=="CAST" ~ "CAST/EiJ",
+         TRUE ~ "C57BL/6J")) %>%
+  mutate(strain=as.character(strain)) %>%
+  pivot_wider(names_from='strain',
+              values_from='snp_allele', values_fill='') %>%
+  arrange(snp_pos) 
+```
+
+```{r}
+strains_epivariants_filt_table %>%
+  write_csv('../../tables/snvs/strains_epivariants.csv')
+```
+
+```{r}
+font_size <- 12
+allele_shapes <- c('A'=21, 'C'=22, 'G'=23, 'T'=24)
+faces_strains_filt <- strains_epivariants_filt %>%
+  select(snp_pos, face) %>% unique() %>% pull(face)
+strains_epivariants_h_p <- strains_epivariants_filt %>%
+  inner_join(strains_samples_plot %>% select(-id), by=c('strain')) %>%
+  mutate(strain=fct_reorder(strain, pos_plot)) %>%
+  ggplot(aes(x=as.factor(snp_pos),
+             y=meth,
+             fill=snp_allele,
+             shape=snp_allele,
+             group=snp_allele)) +
+  geom_point(alpha=0.7, position=position_dodge(width=0.8)) +
+  facet_grid(rows=vars(strain)) +
+  scale_y_continuous('Methylation Level', 
+                     lim=c(0,1),
+                     breaks=c(0, 0.5, 1),
+                     labels=c('', 0.5, 1)) +
+  scale_x_discrete('SNP position within rDNA unit') +
+  scale_fill_manual('Allele', values=allele_colours_cb) +
+  scale_shape_manual('Allele', values=allele_shapes) +
+  theme_bw() +
+  theme(panel.grid=element_blank(),
+        panel.spacing=unit(0.2, 'lines'),
+        strip.background=element_blank(),
+        strip.text.y=element_text(size=font_size, angle=0, hjust=0),
+        axis.text.x=element_text(face=faces_strains_filt, angle=90, hjust=1, vjust=0.5),
+        axis.title=element_text(size=font_size+2),
+        axis.text.y=element_text(size=font_size),
+        legend.title=element_text(face='bold', size=font_size),
+        legend.text=element_text(size=font_size),
+        legend.spacing.x = unit(0.1, 'lines'),
+        legend.margin=margin(t=-5, r=0, b=0, l=0))
+```
+
+```{r}
+fig_4a_fd <- '../../figures/publication/fig_4/A/'
+dir.create(fig_4a_fd, showWarnings = FALSE, recursive = T)
+ggsave(paste0(fig_4a_fd, 'strains_epivariants_h.pdf'),
+       strains_epivariants_h_p, height=5, width=12, dpi=1200)
+```
+
+```{r}
+plot_epivariants <- function(positions, font_size=12,
+                             top_margin=0, bottom_margin=0) {
+  strains_epivariants_filt %>%
+  filter(snp_pos %in% positions) %>%
+  ggplot(aes(x=strain, y=meth,
+             shape=snp_allele,
+             fill=snp_allele, group=snp_allele)) +
+  geom_point(alpha=0.7, size=2, stroke=1,
+             position=position_dodge(width=0.8)) +
+  facet_grid(.~snp_pos, scales='free_x', space='free') +
+  scale_y_continuous('Methylation Level', 
+                     lim=c(0,1),
+                     breaks=c(0, 0.5, 1),
+                     labels=c('', 0.5, 1)) +
+  scale_x_discrete('') +
+  scale_fill_manual('Allele', values=allele_colours_cb) +
+  scale_shape_manual('Allele', values=allele_shapes) +
+  theme_bw() +
+  theme(
+    plot.margin=margin(t=top_margin, b=bottom_margin),
+    panel.grid=element_blank(),
+    panel.border=element_rect(size=1.1),
+    panel.spacing=unit(0.1, 'lines'),
+    strip.background=element_blank(),
+    strip.text=element_text(size=font_size),
+    axis.title=element_text(size=font_size+2),
+    axis.text.y=element_text(size=font_size),
+    axis.text.x=element_text(size=font_size-2),
+    legend.title=element_text(face='bold', size=font_size),
+    legend.text=element_text(size=font_size),
+    legend.spacing.x = unit(0.1, 'lines'),
+    legend.margin=margin(t=-5, r=0, b=0, l=0))
+}
+```
+
+```{r}
+positions <- c(-104, 6777, 6832, 12736)
+strain_epivariants_p1<- plot_epivariants(positions, bottom_margin=-20)
+```
+
+```{r}
+unique_positions <- strains_epivariants_filt %>%
+  group_by(strain, snp_pos) %>%
+  mutate(allele=if_else(meth==max(meth), snp_allele, '')) %>%
+  summarise(diff=max(meth)-min(meth), allele=max(allele), .groups='drop') %>%
+  group_by(snp_pos) %>%
+  mutate(num_strains=n_distinct(strain)) %>%
+  group_by(strain) %>%
+  filter(! snp_pos %in% positions,
+         num_strains==min(num_strains),
+         strain != 'BL6J') %>%
+  arrange(desc(diff)) %>%
+  slice(1) %>%
+  pull(snp_pos)
+```
+
+```{r}
+strain_epivariants_p2 <- plot_epivariants(unique_positions, top_margin=-200)
+```
+
+```{r}
+strains_epivariants_p <- (strain_epivariants_p1 / strain_epivariants_p2) +
+  plot_layout(guides='collect')
+```
+
+```{r}
+fig_4a_fd <- '../../figures/publication/fig_4/A/'
+dir.create(fig_4a_fd, showWarnings = FALSE, recursive = T)
+ggsave(paste0(fig_4a_fd, 'strains_epivariants_selected.pdf'),
+       strains_epivariants_p, height=4, width=8, dpi=1200)
+```
+
+```{r}
+strains_epivariants_allele_freqs <- strains_epivariants_allele %>%
+    inner_join(strains_epivariants_allele,
+               by=c('snp_pos'), suffix=c('_1', '_2')) %>%
+    mutate(same_allele=(snp_allele_1==snp_allele_2)) %>%
+    group_by(strain_1) %>%
+    mutate(num_epialleles=n_distinct(snp_pos)) %>%
+    group_by(strain_1, strain_2) %>%
+    summarise(
+        num_epialleles=unique(num_epialleles),
+        num_shared=n_distinct(snp_pos),
+        num_shared_allele=sum(same_allele),
+        .groups='drop') %>%
+    mutate(freq_shared=num_shared/num_epialleles,
+           freq_shared_allele=num_shared_allele/num_epialleles)
+```
+
+```{r}
+strains_epivariants_shared_pos_p <- strains_epivariants_allele_freqs %>%
+  ggplot() +
+  geom_tile(aes(y=strain_1, x=strain_2, fill=freq_shared),
+            colour='black', size=1) +
+  theme_bw() +
+  labs(x='', y='') +
+  scale_fill_gradient2(name='', low='white', high='grey20',
+                       guide = guide_legend(reverse = T),
+                       limits = c(0,1)) +
+  theme(aspect.ratio=1,
+        axis.text=element_text(size=14),
+        legend.key.height=unit(1.5, 'cm'), 
+        legend.text=element_text(size=14),
+        panel.border=element_blank(),
+        panel.grid=element_blank(),
+        axis.ticks=element_blank(),
+        legend.position='none') +
+  ggtitle('Shared epiallele position')
+```
+
+```{r}
+strains_epivariants_shared_alleles_p <- strains_epivariants_allele_freqs %>%
+  ggplot() +
+  geom_tile(aes(y=strain_1, x=strain_2, fill=freq_shared_allele),
+            colour='black', size=1) +
+  theme_bw() +
+  labs(x='', y='') +
+  scale_fill_gradient2(name='', low='white', high='grey20',
+                       guide = guide_legend(reverse = T),
+                       limits = c(0,1)) +
+  theme(aspect.ratio=1,
+        axis.text=element_text(size=14),
+        legend.key.height=unit(1.5, 'cm'), 
+        legend.text=element_text(size=14),
+        panel.border=element_blank(),
+        panel.grid=element_blank(),
+        axis.ticks=element_blank()) +
+  ggtitle('Shared higher-methylated allele')
+```
+
+```{r}
+strains_epivariants_shared_p <- (
+  strains_epivariants_shared_pos_p +
+  (strains_epivariants_shared_alleles_p +
+      theme(axis.text.y=element_blank())))
+```
+```{r}
+fig_4a_fd <- '../../figures/publication/fig_4/A/'
+dir.create(fig_4a_fd, showWarnings = FALSE, recursive = T)
+ggsave(paste0(fig_4a_fd, 'strains_epivariants_shared.pdf'),
+       strains_epivariants_shared_p, height=5, width=10, dpi=1200)
+```
+
+#### Supplementary
+
+### 6J WGS vs WGBS frequencies
+
+```{r}
+strains_metadata_ext <- readxl::read_excel(
+  '../../data/strains/metadata/sampleID_mouseID_extID.xlsx') %>%
+  mutate(strain=substr(`Mouse ID`, 1, nchar(`Mouse ID`)-1)) %>%
+  select(strain, mouse=ext_id, sample, int_id=`Mouse ID`)
+```
+
+
+```{r}
+strains_wgs_wgbs_p <- strains_snps %>%
+  inner_join(strains_metadata_ext, by=c('sample', 'strain')) %>%
+  mutate(strain=fct_relevel(strain, 
+                            strains_samples_plot %>%
+                                arrange(pos_plot) %>%
+                                pull(strain))) %>%
+  ggplot(aes(x=(1-ref_prop_exp), y=(1-ref_prop_obs), fill=strain)) +
+  geom_segment(x=-Inf, xend=Inf, y=-Inf, yend=Inf, colour='grey90', alpha=0.6) +
+  geom_point(shape=21, alpha=0.6, stroke=0.7) +
+  stat_cor(aes(label=..r.label..), label.y = 0.9, label.x = 0.05, size=3) +
+  facet_grid(cols=vars(mouse), rows=vars(strain)) +
+  scale_x_continuous(limits=c(0,1), breaks=c(0, 0.5, 1), labels=c('', 0.5, 1)) +
+  scale_y_continuous(limits=c(0,1), breaks=c(0, 0.5, 1), labels=c('', 0.5, 1)) +
+  scale_fill_manual('', values=strains_colours) +
+  labs(x='AAF in WGS', y='AAF in WGBS') +
+  theme_bw() +
+  theme(aspect.ratio=1,
+        panel.grid=element_blank(),
+        panel.border=element_rect(size=1.1),
+        panel.spacing=unit(0.2, 'lines'),
+        strip.background=element_blank(),
+        strip.text=element_text(size=12),
+        axis.text=element_text(size=12),
+        axis.title=element_text(size=14),
+        legend.position='none')
+```
+
+```{r}
+ggsave('../../figures/publication/supp/strains_wgs_wgbs.pdf',
+       strains_wgs_wgbs_p, height=14, width=12, dpi=1200)
+```
+
+### B.- Strains adjusted frequencies
+
+
+```{r}
+strains_rna_fd <- 'strains/rna/'
+```
+
+```{r}
+strains_rna_many <- read_snps_lofreq('lofreq',
+                              fn='many',
+                              data_fd=paste0(the_data_fd, strains_rna_fd)) %>%
+  mutate(snp_pos=adjust_pos(pos, 3008))
+```
+
+```{r}
+strains_wgs_rrna <- strains_snps %>%
+  inner_join(strains_rna_many,
+             by=c('snp_pos', 'ref', 'alt', 'sample')) %>%
+  rename(num_rrna=dp, aaf_rrna=af) %>%
+  mutate(num_wgs=`A`+`C`+`T`+`G`,
+         aaf_wgs=1-ref_prop_exp) %>%
+  filter(num_rrna>100, num_wgs>100) %>%
+  mutate(difference=abs(aaf_rrna-aaf_wgs))
+```
+
+
+```{r}
+strains_wgs_rrna_meth <- strains_wgs_rrna %>%
+  select(sample, strain, id, snp_pos, ref, alt, aaf_rrna, aaf_wgs) %>% 
+  inner_join(strains_epivariants_filt %>%
+               mutate(snp_pos=as.numeric(as.character(snp_pos))),
+             by=c('sample', 'strain', 'id', 'snp_pos')) %>%
+  mutate(the_allele=if_else(snp_allele==ref, 'meth_ref', 'meth_alt')) %>%
+  select(-snp_allele) %>%
+  pivot_wider(names_from=the_allele, values_from=meth) %>%
+  mutate(aaf_adj=(
+    (aaf_wgs*(1-meth_alt))/(aaf_wgs*(1-meth_alt)+(1-aaf_wgs)*(1-meth_ref)))) %>%
+  select(strain, id, snp_pos, aaf_rrna, aaf_wgs, aaf_adj) %>%
+  pivot_longer(c(aaf_wgs, aaf_adj),
+               names_to='type', names_prefix='aaf_', values_to='aaf') %>%
+  mutate(type=if_else(type=='adj', 'Adjusted', 'Non-Adjusted'),
+         fill_group=if_else(type=='Adjusted', strain, type))
+```
+
+```{r strains_wgs_rrna_selected, fig.height=4, fig.width=10}
+font_size <- 12
+adj_colours_2 <- c('Non-Adjusted'='grey50', 'Adjusted'='grey10')
+adj_shapes <- c('Non-Adjusted'=22, 'Adjusted'=21)
+strains_adj_freq_selected_p <- strains_wgs_rrna_meth %>%
+  inner_join(strains_samples_plot, by=c('strain', 'id')) %>%
+  ggplot() +
+  geom_segment(y=-Inf, yend=Inf, x=-Inf, xend=Inf, colour='grey90', alpha=0.6) +
+  geom_point(aes(x=aaf, y=aaf_rrna,  color=type, shape=type, fill=fill_group),
+                 alpha=0.7, stroke=1, size=1.5) +
+  stat_cor(aes(x=aaf, y=aaf_rrna, color=type, label=..r.label..), 
+           method='pearson', label.x.npc=0.70,
+           label.y.npc=0.15, show.legend=F, size=3) +
+  geom_text(aes(label=strain), x=0.05, y=0.95, size=5, hjust=0,
+            data=strains_samples_plot %>% arrange(pos_plot)) + 
+  facet_grid(cols=vars(pos_plot)) +
+  scale_y_continuous('AAF in rRNA-Seq',
+                     breaks=c(0, 0.5, 1), labels=c('', 0.5, 1)) +
+  scale_x_continuous('AAF in WGS', 
+                     breaks=c(0, 0.5, 1), labels=c('', 0.5, 1)) +
+  coord_fixed() +
+  scale_colour_manual('Frequency', values=adj_colours_2, guide=F) +
+  scale_fill_manual('Frequency',
+                    values=c(strains_colours_cb, 'Non-Adjusted'=alpha('white', 0)),
+                    guide=F) +
+  scale_shape_manual('Frequency', values=adj_shapes) +
+  theme_bw() +
+  theme(panel.grid=element_blank(),
+        panel.border=element_rect(size=1.1),
+        axis.title=element_text(size=font_size+2),
+        axis.text=element_text(size=font_size),
+        strip.background=element_blank(),
+        strip.text=element_blank(),
+        panel.spacing=unit(0.2, 'lines'),
+        legend.title=element_text(face='bold', size=font_size),
+        legend.text=element_text(size=font_size),
+        legend.spacing.x = unit(0.1, 'lines'),
+        legend.box.margin=margin(-7,-7,-7,-7))
+```
+
+```{r}
+ggsave('../../figures/publication/fig_4/B/strains_adj_freq_selected.pdf',
+       strains_adj_freq_selected_p, height=4, width=12, dpi=1200)
+```
+
+```{r}
+strains_adj_freq_selected_th_p <- strains_wgs_rrna_meth %>%
+  group_by(strain, id, snp_pos) %>%
+  filter(all(aaf>=0.1), all(aaf<=0.9)) %>%
+  inner_join(strains_samples_plot, by=c('strain', 'id')) %>%
+  ggplot() +
+  geom_segment(y=-Inf, yend=Inf, x=-Inf, xend=Inf, colour='grey90', alpha=0.6) +
+  geom_point(aes(x=aaf, y=aaf_rrna,  color=type, shape=type, fill=fill_group),
+                 alpha=0.7, stroke=1, size=1.5) +
+  stat_cor(aes(x=aaf, y=aaf_rrna, color=type, label=..r.label..), 
+           method='pearson', label.x.npc=0.70,
+           label.y.npc=0.15, show.legend=F, size=3) +
+  geom_text(aes(label=strain), x=0.05, y=0.95, size=5, hjust=0,
+            data=strains_samples_plot %>% arrange(pos_plot)) + 
+  facet_grid(cols=vars(pos_plot)) +
+  scale_y_continuous('AAF in rRNA-Seq', limits=c(0,1),
+                     breaks=c(0, 0.5, 1), labels=c('', 0.5, 1)) +
+  scale_x_continuous('AAF in WGS', limits=c(0,1),
+                     breaks=c(0, 0.5, 1), labels=c('', 0.5, 1)) +
+  coord_fixed() +
+  scale_colour_manual('Frequency', values=adj_colours_2, guide=F) +
+  scale_fill_manual('Frequency',
+                    values=c(strains_colours, 'Non-Adjusted'=alpha('white', 0)),
+                    guide=F) +
+  scale_shape_manual('Frequency', values=adj_shapes) +
+  theme_bw() +
+  theme(panel.grid=element_blank(),
+        panel.border=element_rect(size=1.1),
+        axis.title=element_text(size=font_size+2),
+        axis.text=element_text(size=font_size),
+        strip.background=element_blank(),
+        strip.text=element_blank(),
+        panel.spacing=unit(0.2, 'lines'),
+        legend.title=element_text(face='bold', size=font_size),
+        legend.text=element_text(size=font_size),
+        legend.spacing.x = unit(0.1, 'lines'),
+        legend.box.margin=margin(-7,-7,-7,-7))
+```
+
+```{r}
+fig_4b_fd <- '../../figures/publication/fig_4/B/'
+dir.create(fig_4b_fd, showWarnings = FALSE, recursive = T)
+ggsave(paste0(fig_4b_fd, 'strains_adj_freq_selected_th.pdf'),
+       strains_adj_freq_selected_th_p, height=4, width=12, dpi=1200)
+```
+
+#### Supplementary
+
+```{r}
+font_size <- 12
+adj_colours_2 <- c('Non-Adjusted'='grey50', 'Adjusted'='grey10')
+strains_adj_freq_all_p <- strains_wgs_rrna_meth %>%
+  mutate(int_id=paste0(strain, id)) %>%
+  inner_join(strains_metadata_ext, by=c('int_id', 'strain')) %>%
+  mutate(strain=fct_relevel(strain, 
+                            strains_samples_plot %>%
+                              arrange(pos_plot) %>%
+                              pull(strain))) %>%
+  ggplot() +
+  geom_segment(y=-Inf, yend=Inf, x=-Inf, xend=Inf, colour='grey90', alpha=0.6) +
+  geom_point(aes(x=aaf, y=aaf_rrna,  color=type, shape=type, fill=fill_group),
+                 alpha=0.7, stroke=1, size=1.5) +
+  stat_cor(aes(x=aaf, y=aaf_rrna, color=type, label=..r.label..), 
+           method='pearson', label.x.npc=0.05, label.y.npc=0.95,
+           show.legend=F, size=3) +
+  facet_grid(cols=vars(mouse), rows=vars(strain)) +
+  scale_y_continuous('AAF in rRNA-Seq',
+                     breaks=c(0, 0.5, 1), labels=c('', 0.5, 1)) +
+  scale_x_continuous('AAF in WGS', 
+                     breaks=c(0, 0.5, 1), labels=c('', 0.5, 1)) +
+  coord_fixed() +
+  scale_colour_manual('Frequency', values=adj_colours_2, guide=F) +
+  scale_fill_manual('Frequency',
+                    values=c(strains_colours, 'Non-Adjusted'=alpha('white', 0)),
+                    guide=F) +
+  scale_shape_manual('Frequency', values=adj_shapes) +
+  theme_bw() +
+  theme(legend.position='bottom',
+        panel.grid=element_blank(),
+        panel.border=element_rect(size=1.1),
+        axis.title=element_text(size=font_size+2),
+        axis.text=element_text(size=font_size),
+        strip.background=element_blank(),
+        strip.text=element_text(size=font_size),
+        panel.spacing=unit(0.2, 'lines'),
+        legend.title=element_text(face='bold', size=font_size),
+        legend.text=element_text(size=font_size),
+        legend.spacing.x = unit(0.1, 'lines'),
+        legend.box.margin=margin(-7,-7,-7,-7))
+```
+
+```{r}
+ggsave('../../figures/publication/supp/strains_adj_freq_all.pdf',
+       strains_adj_freq_all_p, height=14, width=12, dpi=1200)
+```
+
+Statistical test
+
+```{r}
+strains_adj_cor <- strains_wgs_rrna_meth %>%
+    mutate(int_id=paste0(strain, id)) %>%
+    inner_join(strains_metadata_ext, by=c('int_id', 'strain')) %>%
+    mutate(strain=fct_relevel(strain, 
+                              strains_samples_plot %>%
+                                  arrange(pos_plot) %>%
+                                  pull(strain))) %>%
+    select(int_id, aaf, aaf_rrna, type) %>%
+    mutate(the_group=paste(int_id, type)) %>%
+    group_by(the_group) %>%
+    summarise(the_cor=cor(aaf, aaf_rrna)) %>%
+    separate(the_group, into=c('id', 'type'), sep=' ') %>%
+    pivot_wider(names_from='type', values_from='the_cor')
+```
+
+```{r}
+wilcox.test(strains_adj_cor$Adjusted, strains_adj_cor$`Non-Adjusted`, paired=T)
+```
+
+### C.- Methylation vs. Copy Number
+
+#### Main
+
+```{r}
+strains_cn_meth <- read_csv('../../data/strains/summaries/cn_meth.csv',
+                            col_types=cols()) %>%
+  rename(id=`Mouse ID`) %>%
+  mutate(id=str_sub(id, -1)) %>%
+  mutate(meth=meth/100) %>%
+  rename(cn=cn_ddpcr)
+```
+
+```{r}
+strains_cn_meth_means <- strains_cn_meth %>%
+  group_by(strain) %>%
+  summarise(cn=mean(cn), meth=mean(meth), .groups='drop')
+```
+
+```{r}
+font_size <- 12
+strains_cn_meth_p <- strains_cn_meth %>%
+  rename(Strain=strain) %>%
+  ggplot() +
+  ggstar::geom_star(aes(x=cn, y=meth, fill=Strain, starshape=Strain),
+             size=3, alpha=0.7) +
+  stat_cor(aes(x=cn, y=meth,
+               label=paste('Overall:', 
+                           paste(..r.label.. , ..p.label..,
+                                 sep="~`,`~"), sep='~')),
+           method='pearson',
+           label.x.npc=0.22, label.y.npc=0.1, show.legend=F) +
+  stat_cor(aes(x=cn, y=meth,
+               label=paste('Strain~Means:', 
+                           paste(..r.label.. , ..p.label..,
+                                 sep="~`,`~"), sep='~')),
+           data=strains_cn_meth_means, method='pearson', colour='grey40',
+           label.x.npc=0.22, label.y.npc=0.03, show.legend=F) +
+  theme_bw() +
+  ggstar::scale_starshape_manual(values=strains_shapes) +
+  scale_fill_manual(values=strains_colours) +
+  scale_y_continuous(limits=c(0,0.4),
+                     breaks=c(0, 0.2, 0.4), 
+                     labels=c('', 0.2, 0.4)) +
+  scale_x_continuous(limits=c(75, 325), 
+                     breaks=c(100, 200, 300)) +
+  theme(aspect.ratio=1,
+        panel.grid=element_blank(),
+        panel.border=element_rect(size=1.1),
+        axis.title=element_text(size=font_size+2),
+        axis.text=element_text(size=font_size),
+        legend.position='bottom',
+        legend.title=element_text(face='bold', size=font_size),
+        legend.text=element_text(size=font_size),
+        legend.spacing.x = unit(0.1, 'lines'),
+        legend.margin=margin(0,0,0,0),
+        legend.box.margin=margin(-7,-7,-7,-7)) +
+  labs(x='rDNA Copy Number from ddPCR',
+       y='Average rDNA Promoter Methylation')
+```
+
+```{r}
+fig_4c_fd <- '../../figures/publication/fig_4/C/'
+dir.create(fig_4c_fd, showWarnings = FALSE, recursive = T)
+ggsave(paste0(fig_4c_fd, 'strains_cn_meth.pdf'),
+       strains_cn_meth_p, height=4.3, width=4, dpi=1200)
+```
+
+#### Supplementary
+
+##### WGS vs ddPCR
+
+```{r}
+strains_cn_ddpcr_wgs_p <- strains_cn_meth %>%
+  rename(Strain=strain) %>%
+  ggplot(aes(x=cn, y=cn_18s)) +
+  ggstar::geom_star(aes(starshape=Strain, fill=Strain),
+             size=3, alpha=0.7) +
+  stat_cor(method='pearson',
+             label.x.npc=0.1, label.y.npc=0.9, show.legend=F) +
+  theme_bw() +
+  ggstar::scale_starshape_manual(values=strains_shapes) +
+  scale_fill_manual(values=strains_colours) +
+  scale_y_continuous(limits=c(75, 325), 
+                     breaks=c(100, 200, 300)) +
+  scale_x_continuous(limits=c(75, 325), 
+                     breaks=c(100, 200, 300)) +
+  theme(aspect.ratio=1,
+        panel.grid=element_blank(),
+        panel.border=element_rect(size=1.1),
+        axis.title=element_text(size=font_size+2),
+        axis.text=element_text(size=font_size),
+        legend.position='bottom',
+        legend.title=element_text(face='bold', size=font_size),
+        legend.text=element_text(size=font_size),
+        legend.spacing.x = unit(0.1, 'lines'),
+        legend.margin=margin(0,0,0,0),
+        legend.box.margin=margin(-7,-7,-7,-7)) +
+  labs(x='rDNA Copy Number from ddPCR',
+       y='rDNA Copy Number from WGS')
+```
+
+##### WGBS vs ddPCR
+
+```{r}
+strains_cn_ddpcr_wgbs_p <- read_csv(
+  paste0(the_data_fd, 'strains/wgbs/cn.csv'),
+  col_types=cols()) %>%
+  select(sample, cn_18s) %>%
+  mutate(cn_18s=2*cn_18s) %>%
+  inner_join(strains_metadata, by=c('sample')) %>%
+  inner_join(strains_cn_meth %>% select(strain, id, cn),
+             by=c('strain', 'id')) %>%
+  rename(Strain=strain) %>%
+  ggplot(aes(x=cn, y=cn_18s)) +
+  ggstar::geom_star(aes(starshape=Strain, fill=Strain),
+             size=3, alpha=0.7) +
+  stat_cor(method='pearson',
+             label.x.npc=0.1, label.y.npc=0.9, show.legend=F) +
+  theme_bw() +
+  ggstar::scale_starshape_manual(values=strains_shapes) +
+  scale_fill_manual(values=strains_colours) +
+  scale_y_continuous(limits=c(75, 325), 
+                     breaks=c(100, 200, 300)) +
+  scale_x_continuous(limits=c(75, 325), 
+                     breaks=c(100, 200, 300)) +
+  theme(aspect.ratio=1,
+        panel.grid=element_blank(),
+        panel.border=element_rect(size=1.1),
+        axis.title=element_text(size=font_size+2),
+        axis.text=element_text(size=font_size),
+        legend.position='bottom',
+        legend.title=element_text(face='bold', size=font_size),
+        legend.text=element_text(size=font_size),
+        legend.spacing.x = unit(0.1, 'lines'),
+        legend.margin=margin(0,0,0,0),
+        legend.box.margin=margin(-7,-7,-7,-7)) +
+  labs(x='rDNA Copy Number from ddPCR',
+       y='rDNA Copy Number from WGBS')
+```
+
+
+##### Methylation from exons
+
+```{r}
+strains_meth_exons <- read_csv('../../data/strains/wgbs/meth_exons.csv',
+                            col_types=cols(),
+                            col_names=c('sample', 'meth')) %>%
+  inner_join(strains_metadata, by=c('sample')) %>%
+  mutate(meth=meth/100) %>%
+  select(sample, strain, id, meth)
+```
+
+
+```{r}
+strains_cn_meth_exons_p <- strains_meth_exons %>%
+    inner_join(strains_cn_meth,
+               by=c('strain', 'id'),
+               suffix=c('_exons', '_rdna')) %>%
+  rename(Strain=strain) %>%
+  ggplot() +
+  ggstar::geom_star(aes(x=cn, y=meth_exons, fill=Strain, starshape=Strain),
+             size=3, alpha=0.7) +
+  stat_cor(aes(x=cn, y=meth_exons,
+               label=paste(paste(..r.label.. , ..p.label..,
+                                 sep="~`,`~"), sep='~')),
+           method='pearson',
+           label.x.npc=0.1, label.y.npc=0.9, show.legend=F) +
+  theme_bw() +
+  ggstar::scale_starshape_manual(values=strains_shapes) +
+  scale_fill_manual(values=strains_colours) +
+  scale_y_continuous(limits=c(0.5, 1),
+                     breaks=c(0.5, 1), 
+                     labels=c(0.5, 1)) +
+  scale_x_continuous(limits=c(75, 325), 
+                     breaks=c(100, 200, 300)) +
+  theme(aspect.ratio=1,
+        panel.grid=element_blank(),
+        panel.border=element_rect(size=1.1),
+        axis.title=element_text(size=font_size+2),
+        axis.text=element_text(size=font_size),
+        legend.position='bottom',
+        legend.title=element_text(face='bold', size=font_size),
+        legend.text=element_text(size=font_size),
+        legend.spacing.x = unit(0.1, 'lines'),
+        legend.margin=margin(0,0,0,0),
+        legend.box.margin=margin(-7,-7,-7,-7)) +
+  labs(x='rDNA Copy Number from ddPCR',
+       y='Genome-Wide Exome Methylation')
+```
+
+##### Methylation from 18s
+
+```{r}
+strains_meth_18S <- bind_rows(
+  lapply(
+    X=list.files(paste0(the_data_fd, 'strains/wgbs/bme_extracted/')),
+    FUN=function(x) {
+      read_tsv(paste0(the_data_fd, 'strains/wgbs/bme_extracted/', x),
+               skip=1,
+               col_names=c('chr', 'start', 'end', 'meth'),
+               col_types=cols()) %>%
+        mutate(sample=x) %>%
+        mutate(sample=gsub('.bedGraph', '', sample))
+    })) %>%
+  filter(chr=='BK000964.3_looped_3008') %>%
+  mutate(pos_ref=adjust_pos(start, 3008)) %>%
+  filter(
+    pos_ref >= (
+      coding_regions_m %>% filter(region=='18S') %>% pull(start)) -1, 
+    pos_ref <= (
+      coding_regions_m %>% filter(region=='18S') %>% pull(end))) %>%
+  select(sample, pos_ref, meth) %>%
+  group_by(sample) %>%
+  summarise(meth=mean(meth)/100, .groups='drop') %>%
+  inner_join(strains_metadata, by=c('sample'))
+```
+
+```{r}
+strains_cn_meth_18S_p <- strains_meth_18S %>%
+  inner_join(
+    strains_cn_meth %>% select(strain, id, cn),
+    by=c('strain', 'id')) %>%
+  rename(Strain=strain) %>%
+  ggplot(aes(x=cn, y=meth)) +
+  ggstar::geom_star(aes(starshape=Strain, fill=Strain),
+             size=3, alpha=0.7) +
+  stat_cor(method='pearson',
+           label.x.npc=0.1, label.y.npc=0.9, show.legend=F) +
+  theme_bw() +
+  ggstar::scale_starshape_manual(values=strains_shapes) +
+  scale_fill_manual(values=strains_colours) +
+  scale_y_continuous(limits=c(0, 0.5),
+                     breaks=c(0, 0.5), 
+                     labels=c('', 0.5)) +
+  scale_x_continuous(limits=c(75, 325), 
+                     breaks=c(100, 200, 300)) +
+  theme(aspect.ratio=1,
+        panel.grid=element_blank(),
+        panel.border=element_rect(size=1.1),
+        axis.title=element_text(size=font_size+2),
+        axis.text=element_text(size=font_size),
+        legend.position='bottom',
+        legend.title=element_text(face='bold', size=font_size),
+        legend.text=element_text(size=font_size),
+        legend.spacing.x = unit(0.1, 'lines'),
+        legend.margin=margin(0,0,0,0),
+        legend.box.margin=margin(-7,-7,-7,-7)) +
+  labs(x='rDNA Copy Number from ddPCR',
+       y='Average 18S Methylation')
+```
+
+```{r}
+strains_wgbs_cov <- read_csv('../../data/strains/WGBS/covs.csv',
+                     col_types=cols()) %>%
+  mutate(pos_ref=adjust_pos(pos, 3008))
+
+strains_wgbs_cov_p <- strains_wgbs_cov %>%
+  filter(pos_ref >= coding_regions_m[1,]$start,
+         pos_ref <= coding_regions_m[1,]$end) %>%
+  group_by(sample) %>%
+  summarise(mean_cov=mean(cov)) %>%
+  inner_join(strains_wgbs_cov %>%
+               filter(pos_ref > 4267+150,
+                      pos_ref < 5568-150) %>%
+               group_by(sample) %>%
+               summarise(mean_cov=mean(cov)),
+             by=c('sample'), suffix=c('_all', '_subset')) %>%
+  inner_join(strains_metadata, by=c('sample')) %>%
+  rename(Strain=strain) %>%
+  ggplot() +
+  ggstar::geom_star(
+    aes(x=mean_cov_all, y=mean_cov_subset, fill=Strain, starshape=Strain),
+             size=3, alpha=0.7) +
+  stat_cor(aes(x=mean_cov_all, y=mean_cov_subset),
+           method='pearson',label.x.npc=0.1, label.y.npc=0.9,
+           show.legend=F) +
+  scale_x_continuous(limits=c(500, 3000)) +
+  scale_y_continuous(limits=c(500, 3000)) +
+  theme_bw() +
+  ggstar::scale_starshape_manual(values=strains_shapes) +
+  scale_fill_manual(values=strains_colours) +
+  theme(aspect.ratio=1,
+        panel.grid=element_blank(),
+        panel.border=element_rect(size=1.1),
+        axis.title=element_text(size=font_size+2),
+        axis.text=element_text(size=font_size),
+        legend.position='bottom',
+        legend.title=element_text(face='bold', size=font_size),
+        legend.text=element_text(size=font_size),
+        legend.spacing.x = unit(0.1, 'lines'),
+        legend.margin=margin(0,0,0,0),
+        legend.box.margin=margin(-7,-7,-7,-7)) +
+  labs(x='Average 18S Read Depth',
+       y='Average 18S Read Depth (no SNVs)')
+```
+
+
+##### Combined supplementary
+
+```{r}
+strains_cn_supp_p <- ((
+  strains_cn_meth_exons_p +
+  strains_cn_meth_18S_p +
+  strains_cn_ddpcr_wgs_p +
+  strains_cn_ddpcr_wgbs_p +
+  strains_wgbs_cov_p + guide_area()) *
+   guides(fill=guide_legend(ncol=1, title.position = 'top')) +
+    plot_layout(ncol=2, guides='collect'))
+```
+
+```{r}
+ggsave('../../figures/publication/supp/strains_cn_2.pdf',
+       strains_cn_supp_p, height=12, width=8, dpi=1200)
+```
+
+
+## Supplementary
+
+### S4.A.- Strains: Adjusted frequencies from all samples
+
+```{r strains_wgs_rrna, fig.height=8, fig.width=8}
+font_size <- 12
+adj_colours_2 <- c('Non-Adjusted'='grey50', 'Adjusted'='grey10')
+strains_wgs_rrna_meth %>%
+  ggplot() +
+  geom_segment(y=-Inf, yend=Inf, x=-Inf, xend=Inf, colour='grey90', alpha=0.6) +
+  geom_point(aes(x=aaf, y=aaf_rrna,  color=type, shape=type, fill=fill_group),
+                 alpha=0.7, stroke=1, size=1.5) +
+  stat_cor(aes(x=aaf, y=aaf_rrna, color=type), 
+           method='pearson', label.x.npc=0.42,
+           label.y.npc=0.1, show.legend=F, size=2) +
+  facet_grid(rows=vars(strain), cols=vars(id)) +
+  scale_y_continuous('Alternative Allele Frequency in rRNA-Seq',
+                     breaks=c(0, 0.5, 1), labels=c('', 0.5, 1)) +
+  scale_x_continuous('Alternative Allele Frequency in WGS', 
+                     breaks=c(0, 0.5, 1), labels=c('', 0.5, 1)) +
+  coord_fixed() +
+  scale_colour_manual('Frequency', values=adj_colours_2, guide=F) +
+  scale_fill_manual('Frequency',
+                    values=c(strains_colours, 'Non-Adjusted'=alpha('white', 0)),
+                    guide=F) +
+  scale_shape_manual('Frequency', values=adj_shapes) +
+  theme_bw() +
+  theme(panel.grid=element_blank(),
+        panel.border=element_rect(size=1.1),
+        axis.title=element_text(size=font_size+2),
+        axis.text=element_text(size=font_size),
+        strip.background=element_blank(),
+        strip.text=element_text(size=font_size),
+        legend.position='bottom',
+        legend.title=element_text(face='bold', size=font_size),
+        legend.text=element_text(size=font_size),
+        legend.spacing.x = unit(0.1, 'lines'),
+        legend.margin=margin(0,0,0,0),
+        legend.box.margin=margin(-7,-7,-7,-7))
+```
+
+
+### S4.C.- Cut&Tag 129S
+
+```{r}
+cnt_cov <- read_data('covs/covs_rdna.csv',
+                     fd=cnt_fd, the_data_fd='../../data/') %>%
+  inner_join(cnt_metadata, by=c('sample')) %>%
+  mutate(pos_ref=adjust_pos(pos, 3008)) %>%
+  separate(sample_name, into=c('strain', 'mouse_id', 'antibody'),
+             sep = ' - ', remove=F) 
+```
+
+```{r}
+cnt_129s_3_p <- plot_cnt_covs(cnt_cov %>%
+                mutate(mouse=paste('Mouse', mouse_id)),
+              the_strain='129S', the_mouse='Mouse 3', max_y=4000)
+```
+
+```{r}
+cnt_129s_5_p <- plot_cnt_covs(cnt_cov %>%
+                mutate(mouse=paste('Mouse', mouse_id)),
+              the_strain='129S', the_mouse='Mouse 5', max_y=4000)
+```
+
+
+```{r}
+cnt_129s_p <- cnt_129s_3_p / cnt_129s_5_p
+```
+
+```{r}
+ggsave('../../figures/publication/fig_4/D/supp/cnt_cov_129s_p.pdf',
+       cnt_129s_p, width=8, height=6, dpi=1200)
+```
+
+```{r}
+cnt_fd <- 'strains/cut_and_tag/'
+```
+
+```{r}
+cnt_metadata <- read_data('metadata/cut_and_tag.txt',
+                            fd='strains/',
+                            the_data_fd=the_data_fd) %>%
+  select(sample, strain, mouse_id) %>%
+  separate(sample, into=c('mouse', 'antibody'), sep='_', remove = F) %>%
+  select(-mouse) %>%
+  mutate(antibody=if_else(antibody=='igg', toupper(antibody), antibody)) %>%
+  mutate(sample_name=paste(strain, mouse_id, antibody, sep=' - ')) %>%
+  select(sample_name, everything())
+```
+
+
+```{r}
+cnt_snps <- read_mpileup(cnt_fd, the_data_fd=the_data_fd) %>%
+  inner_join(cnt_metadata, by=c('sample')) %>%
+  mutate(aaf=num_alt/(num_ref+num_alt))
+```
+
+```{r}
+cnt_snps_129s <- strains_wgs_rrna %>%
+  select(strain, id, snp_pos, aaf_wgs) %>% 
+  mutate(id=as.numeric(id)) %>%
+  inner_join(
+      cnt_snps %>% filter(strain=='129S') %>%
+          filter(antibody!='IGG'),
+      by=c('strain', 'id'='mouse_id', 'snp_pos'='pos_ref')) %>%
+  select(strain, id, snp_pos, antibody, aaf_wgs, aaf_chip=aaf) %>%
+  pivot_wider(names_from='antibody', values_from=aaf_chip) %>%
+  filter(!is.na(H3K27me3), !is.na(H3K9me3))
+```
+
+```{r}
+font_size <- 12
+cnt_129s_mouse_3_p <- cnt_snps_129s %>%
+  filter(id==3) %>%
+  ggplot(aes(x=H3K27me3, y=H3K9me3),
+         shape=21, colour='grey10', fill='grey10') +
+  geom_point(alpha=0.7, stroke=1, size=3) +
+  stat_cor(aes(label=..r.label..),
+           method='pearson', label.x.npc=0.70, label.y.npc=0.15,
+           size=4, show.legend=F) +
+  annotate('text', label='Mouse 3', x=0.15, y=0.95, size=5) + 
+  scale_x_continuous('AAF in H3K27me3',
+                     limits=c(0, 1),
+                     breaks=c(0, 0.5, 1),
+                     labels=c('', 0.5, 1)) +
+  scale_y_continuous('AAF in H3K9me3',
+                     limits=c(0, 1),
+                     breaks=c(0, 0.5, 1),
+                     labels=c('', 0.5, 1)) +
+  scale_colour_manual('Mouse', values=mice_colours) +
+  scale_fill_manual('Mouse', values=mice_colours) +
+  scale_shape_manual('Mouse', values=c('3'=21, '5'=22)) +
+  coord_fixed() +
+  theme_bw() +
+  theme(panel.grid=element_blank(),
+        panel.border=element_rect(size=1.1),
+        axis.title=element_text(size=font_size+2),
+        axis.text=element_text(size=font_size),
+        legend.position='none',
+        legend.title=element_text(face='bold', size=font_size),
+        legend.text=element_text(size=font_size),
+        legend.spacing.x = unit(0.1, 'lines'),
+        legend.box.margin=margin(-7,-7,-7,-7))
+```
+
+
+```{r}
+supp_fd <- '../../figures/publication/supp/'
+dir.create(supp_fd, showWarnings = FALSE, recursive = T)
+ggsave(paste0(supp_fd, 'cnt_129s_mouse_3.pdf'),
+       cnt_129s_mouse_3_p, height=4, width=4, dpi=1200)
+```
+
+```{r}
+font_size <- 12
+cnt_129s_mouse_5_p <- cnt_snps_129s %>%
+  filter(id==5) %>%
+  ggplot(aes(x=H3K27me3, y=H3K9me3),
+         shape=21, colour='grey10', fill='grey10') +
+  geom_point(alpha=0.7, stroke=1, size=3) +
+  stat_cor(aes(label=..r.label..),
+           method='pearson', label.x.npc=0.70, label.y.npc=0.15,
+           size=4, show.legend=F) +
+  annotate('text', label='Mouse 5', x=0.15, y=0.95, size=5) + 
+  scale_x_continuous('AAF in H3K27me3',
+                     limits=c(0, 1),
+                     breaks=c(0, 0.5, 1),
+                     labels=c('', 0.5, 1)) +
+  scale_y_continuous('AAF in H3K9me3',
+                     limits=c(0, 1),
+                     breaks=c(0, 0.5, 1),
+                     labels=c('', 0.5, 1)) +
+  scale_colour_manual('Mouse', values=mice_colours) +
+  scale_fill_manual('Mouse', values=mice_colours) +
+  scale_shape_manual('Mouse', values=c('3'=21, '5'=22)) +
+  coord_fixed() +
+  theme_bw() +
+  theme(panel.grid=element_blank(),
+        panel.border=element_rect(size=1.1),
+        axis.title=element_text(size=font_size+2),
+        axis.text=element_text(size=font_size),
+        legend.position='none',
+        legend.title=element_text(face='bold', size=font_size),
+        legend.text=element_text(size=font_size),
+        legend.spacing.x = unit(0.1, 'lines'),
+        legend.box.margin=margin(-7,-7,-7,-7))
+```
+
+
+```{r}
+supp_fd <- '../../figures/publication/supp/'
+dir.create(supp_fd, showWarnings = FALSE, recursive = T)
+ggsave(paste0(supp_fd, 'cnt_129s_mouse_5.pdf'),
+       cnt_129s_mouse_5_p, height=4, width=4, dpi=1200)
+```

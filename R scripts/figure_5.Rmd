@@ -1,0 +1,772 @@
+---
+title: "Figure 5.- Human"
+---
+
+## 0.- Setup
+
+```{r, echo=F, message=F}
+the_data_fd <- '../../data/'
+source('../../scripts/setup.R')
+source('../../scripts/haplotypes.R')
+library(patchwork)
+```
+
+
+
+## Human Mandinka
+
+```{r}
+mandinka_fd <- '../../../../human_rdna/human_rdna_epivariation_paper/data/mandinka/'
+```
+
+```{r}
+mandinka_metadata <- read_csv(file.path(mandinka_fd, 'metadata/metadata.csv'),
+                              col_types=cols()) %>%
+  mutate(sample=paste0('S', sample),
+         human=gsub(' Con', '', human))
+```
+
+
+```{r}
+mandinka_snps_many <- read_snps_lofreq('lofreq',
+                              fn='many',
+                              data_fd=mandinka_fd) %>%
+  mutate(snp_pos=adjust_pos(pos, 2120))
+```
+
+
+```{r}
+mandinka_snps_hc <- read_csv(file.path(mandinka_fd,
+                                       'snps/snps_hc.csv'),
+                          col_types=cols()) 
+```
+
+
+```{r}
+mandinka_snps <- 
+  mandinka_snps_many %>%
+    inner_join(mandinka_snps_hc %>%
+                 select(snp_pos, ref, alt) %>%
+                 distinct(),
+               by=c('snp_pos', 'ref', 'alt')) %>%
+    group_by(sample, snp_pos) %>%
+    summarise(aaf=sum(af), .groups='drop')
+```
+
+
+```{r}
+mandinka_snps_pc <- mandinka_snps %>%
+  complete(sample, nesting(snp_pos), fill=list(aaf=0)) %>%
+    pivot_wider(names_from=snp_pos, values_from=aaf) %>%
+    column_to_rownames('sample') %>% as.matrix() %>% prcomp(scale=T)
+```
+
+```{r}
+mandinka_outlier_samples <- c('HG02891', 'HG02840', 'HG02855', 'HG02885',
+                              'HG02888', 'HG02851', 'HG03034', 'HG02860',
+                              'HG02861')
+```
+
+```{r}
+mandinka_snps_no_outliers_pc <- mandinka_snps %>%
+  complete(sample, nesting(snp_pos), fill=list(aaf=0)) %>%
+  pivot_wider(names_from=snp_pos, values_from=aaf) %>%
+  filter(! sample %in% mandinka_outlier_samples) %>%
+  column_to_rownames('sample') %>% as.matrix() %>% prcomp(scale=T)
+```
+
+```{r}
+mandinka_outlier_samples_2 <- c(mandinka_outlier_samples, 'HG02759')
+```
+
+```{r}
+mandinka_snps_no_outliers_2_pc <- mandinka_snps %>%
+  complete(sample, nesting(snp_pos), fill=list(aaf=0)) %>%
+  pivot_wider(names_from=snp_pos, values_from=aaf) %>%
+  filter(! sample %in% mandinka_outlier_samples_2) %>%
+  column_to_rownames('sample') %>% as.matrix() %>% prcomp(scale=T)
+```
+
+
+```{r}
+mandinka_all_outlier_samples <- c(mandinka_outlier_samples_2,
+                         'HG02759', 'HG02881', 'HG02882', 'HG02982',
+                         'HG02465', 'HG02771', 'HG03039', 'HG02611')
+```
+
+
+```{r}
+mandinka_metadata_clusters <- mandinka_metadata %>%
+  inner_join(read_csv(file.path(mandinka_fd, 'metadata/samples_groups.csv'),
+                              col_types=cols()) %>%
+               mutate(human=paste0('HG0', sample)) %>%
+               select(-sample),
+             by=c('human')) %>% 
+  mutate(main_cluster=(! human %in% mandinka_all_outlier_samples))
+```
+
+
+```{r}
+mandinka_blink <- read_blink(mandinka_fd, the_data_fd='./',
+                             loop_size = 2120)
+```
+
+```{r}
+mandinka_meth <- mandinka_blink %>%
+  group_by(sample, snp_pos, snp_allele, meth_pos) %>%
+  filter(n()>=10) %>%
+  group_by(sample, snp_pos, meth_pos) %>%
+  filter(n()>=50, n_distinct(snp_allele)>1) %>%
+  group_by(sample, snp_pos, snp_allele, meth_pos) %>%
+  summarise(meth=sum(meth_state=='+')/n(), .groups='drop')
+```
+
+```{r}
+mandinka_meth_sig_no_outliers <- read_csv(
+  file = file.path(mandinka_fd, 'epivariation/mandinka_meth_sig.csv'),
+  col_types=cols()) %>%
+  inner_join(mandinka_metadata, by=c('sample')) %>%
+  filter(! human %in% mandinka_all_outlier_samples) %>%
+  group_by(sample, human, snp_pos, snp_allele, pval, padj) %>%
+  summarise(meth=mean(meth), .groups='drop')
+```
+
+```{r}
+mandinka_meth_allele <- mandinka_meth %>%
+  group_by(sample, snp_pos, snp_allele) %>%
+    summarise(meth=mean(meth), .groups='drop') %>%
+    filter(snp_pos %in% (
+      mandinka_meth_sig_no_outliers %>%
+             group_by(snp_pos) %>%
+             filter(n_distinct(sample)>=15) %>%
+             pull(snp_pos)))
+```
+
+```{r}
+mandinka_snps_blink <- read_snps(
+  fd=mandinka_fd, loop_size=2120, the_data_fd='./')
+```
+
+
+```{r}
+mandinka_cn_aaf <- mandinka_snps %>%
+  inner_join(
+    read_csv(paste0(mandinka_fd, 'metadata/depths_cn.csv'),
+             col_types=cols()) %>%
+      mutate(sample=paste0('HG0', sample),
+             cn=2*cn_18s) %>%
+      select(sample, cn),
+    by=c('sample'))
+```
+
+#### -413
+
+```{r}
+font_size <- 12
+mandinka_m413_meth_p <- mandinka_meth_allele %>%
+  filter(snp_pos==-413) %>%
+  inner_join(mandinka_metadata_clusters, by=c('sample')) %>%
+  ggplot(aes(x=snp_allele, y=meth, fill=snp_allele)) +
+  stat_summary(aes(group=snp_allele),
+               fun=median, fun.min=median, fun.max=median,
+               position=position_dodge(width=0.5), width=0.9,
+               geom='crossbar', alpha=0.5, colour='grey10') +
+  stat_compare_means(
+      aes(label=paste0("p = ", ..p.format..)),
+      method='wilcox.test', vjust=-0.25, label.y = 0.83,
+      paired=T, size=4, comparisons=list(c('G', 'T'))) +
+  geom_dotplot(binaxis = "y", stackdir = "center", alpha=0.7, stroke=1, 
+               binwidth=0.025) +
+  scale_y_continuous('Methylation Level', breaks=c(0, 0.5, 1),
+                     lim=c(0, 1),
+                     labels=c('', 0.5, 1)) +
+  scale_x_discrete('-413 allele') +
+  scale_fill_manual('Allele', values=allele_colours_cb) +
+  theme_bw() +
+  theme(aspect.ratio=1, 
+        panel.grid=element_blank(),
+        panel.border=element_rect(size=1.1),
+        axis.title=element_text(size=14),
+        axis.text=element_text(size=12),
+        legend.position='none',
+        legend.title=element_text(face='bold', vjust = 0.85),
+        legend.margin=margin(t=-5, r=0, b=0, l=0))
+```
+
+```{r}
+mandinka_m413_ov_meth <- mandinka_snps_blink %>%
+    inner_join(mandinka_metadata, by=c('sample')) %>%
+    filter(snp_pos==-413) %>%
+    mutate(T_f=`T`/(`T` + `G`),
+           G_f=`G`/(`T` + `G`)) %>%
+    select(human, `T`=T_f, `G`=G_f) %>%
+    pivot_longer(-human, names_to='snp_allele', values_to='freq') %>%
+  inner_join(mandinka_meth_allele %>%
+      inner_join(mandinka_metadata, by=c('sample')) %>%
+      filter(snp_pos==-413) %>% select(-snp_pos, -sample),
+      by=c('human', 'snp_allele')) %>%
+  mutate(weighted_meth=freq*meth) %>%
+  group_by(human) %>%
+  summarise(meth=sum(weighted_meth))
+```
+
+```{r}
+mandinka_m413_cn_p <- mandinka_m413_ov_meth %>%
+  inner_join(mandinka_cn_aaf %>%
+               filter(snp_pos==-413) %>%
+               select(human=sample, cn),
+             by=c('human')) %>%
+  ggplot(aes(x=cn, y=meth)) +
+  geom_point(alpha=0.7, size=2, stroke=1, 
+             fill='grey10', colour='grey20') +
+  geom_smooth(method='lm', alpha=0.1, color='black') +
+  stat_cor(method='pearson',label.y.npc=0.95, show.legend=F) +
+  scale_x_continuous(limits=c(175, 625),
+                     breaks=c(200, 400, 600),) +
+  scale_y_continuous(limits=c(0, 1),
+                     breaks=c(0, 0.5, 1),
+                     labels=c('', 0.5, 1)) +
+  theme_bw() +
+  theme(aspect.ratio=1,
+        panel.grid=element_blank(),
+        panel.border=element_rect(size=1.1),
+        axis.text=element_text(size=12),
+        axis.title=element_text(size=12)) +
+  labs(x='rDNA copy number from WGS',
+       y='Methylation level around -413')
+```
+
+#### 7980
+
+```{r}
+mandinka_rna_lofreq <- read_snps_lofreq('lofreq',
+                              fn='many',
+                              data_fd=paste0(mandinka_fd, 'rna/')) %>%
+  mutate(pos_ref=adjust_pos(pos, 2120))
+```
+
+
+```{r}
+mandinka_rna_lofreq_7980 <- mandinka_rna_lofreq %>%
+  filter(dp > 100, pos_ref==7980)
+```
+
+```{r}
+mandinka_rna_lofreq_7980 <- bind_rows(
+  mandinka_rna_lofreq_7980,
+  tribble(
+    ~sample, ~pos, ~ref, ~alt, ~dp, ~af, ~pos_ref,
+    'S45', 10100, 'A', 'G', 20630, 0.628890, 7980,
+    'S19', 10100, 'A', 'C', 89770, 0.080004, 7980,
+    'S19', 10100, 'A', 'G', 89770, 0.439345, 7980
+  )
+)
+```
+
+```{r}
+mandinka_wgs_rrna_7980 <- mandinka_snps_many %>%
+   inner_join(mandinka_rna_lofreq_7980 %>%
+                inner_join(mandinka_metadata, by=c('sample')),
+              by=c('pos', 'snp_pos'='pos_ref', 'ref', 'alt', 'sample'='human'),
+              suffix=c('_wgs', '_rna')) %>%
+  rename(human=sample, sample=sample_rna, aaf_wgs=af_wgs, aaf_rrna=af_rna)
+```
+
+
+```{r}
+mandinka_wgs_rrna_meth_7980 <- mandinka_wgs_rrna_7980 %>%
+  select(sample, human, snp_pos, ref, alt, aaf_rrna, aaf_wgs) %>% 
+  inner_join(mandinka_meth_allele %>%
+               filter(snp_pos==7980, snp_allele!='C'),
+             by=c('sample', 'snp_pos')) %>%
+  mutate(the_allele=if_else(snp_allele==ref, 'meth_ref', 'meth_alt')) %>%
+  select(-snp_allele) %>%
+  pivot_wider(names_from=the_allele, values_from=meth) %>%
+  mutate(aaf_adj=((aaf_wgs*(1-meth_alt))/(aaf_wgs*(1-meth_alt)+(1-aaf_wgs)*(1-meth_ref))))
+```
+
+```{r}
+mandinka_7980_meth_p <- mandinka_meth_allele %>%
+  filter(snp_pos==7980, snp_allele != 'C') %>%
+  inner_join(mandinka_metadata_clusters, by=c('sample')) %>%
+  ggplot(aes(x=snp_allele, y=meth, fill=snp_allele)) +
+  stat_summary(aes(group=snp_allele),
+               fun=median, fun.min=median, fun.max=median,
+               position=position_dodge(width=0.5), width=0.9,
+               geom='crossbar', alpha=0.5, colour='grey10') +
+  stat_compare_means(
+      aes(label=paste0("p = ", ..p.format..)),
+      method='wilcox.test', vjust=-0.25, label.y = 0.83,
+      paired=T, size=4, comparisons=list(c('A', 'G'))) +
+  geom_dotplot(binaxis = "y", stackdir = "center", alpha=0.7, stroke=1, 
+               binwidth=0.025) +
+  scale_y_continuous('Methylation Level', breaks=c(0, 0.5, 1),
+                     lim=c(0, 1),
+                     labels=c('', 0.5, 1)) +
+  scale_x_discrete('7980 allele') +
+  scale_fill_manual('Allele', values=allele_colours_cb) +
+  theme_bw() +
+  theme(aspect.ratio=1, 
+        panel.grid=element_blank(),
+        panel.border=element_rect(size=1.1),
+        axis.title=element_text(size=14),
+        axis.text=element_text(size=12),
+        legend.position='none',
+        legend.title=element_text(face='bold', vjust = 0.85),
+        legend.margin=margin(t=-5, r=0, b=0, l=0))
+```
+
+
+
+
+```{r}
+mandinka_wgbs_rrna_meth_7980 <- mandinka_snps_many %>%
+    filter(dp > 100) %>%
+    rename(human=sample, aaf_wgs=af) %>%
+    inner_join(mandinka_snps_blink %>%
+                   filter(sample %in% mandinka_wgs_rrna_meth_7980$sample) %>%
+                   inner_join(mandinka_metadata, by=c('sample')),
+               by=c('human', 'snp_pos', 'ref', 'alt')) %>%
+    mutate(aaf_wgbs=1-ref_prop_obs) %>%
+    select(human, sample, snp_pos, ref, alt, aaf_wgbs) %>%
+    inner_join(mandinka_wgs_rrna_meth_7980,
+               by=c('human', 'sample', 'snp_pos', 'alt', 'ref'))  %>%
+  filter(alt=='G')
+```
+
+```{r}
+mandinka_7980_cn_p <- mandinka_wgbs_rrna_meth_7980 %>%
+  inner_join(mandinka_cn_aaf %>%
+               filter(snp_pos==7980),
+             by=c('human'='sample', 'snp_pos')) %>%
+  mutate(meth=meth_alt*aaf_wgbs+meth_ref*(1-aaf_wgbs)) %>%
+  inner_join(mandinka_metadata_clusters %>% 
+               select(human, sex, main_cluster),
+             by=c('human')) %>%
+  ggplot(aes(x=cn, y=meth)) +
+  geom_point(alpha=0.7, size=2, stroke=1, 
+             fill='grey10', colour='grey20') +
+  geom_smooth(method='lm', alpha=0.1, color='black') +
+  stat_cor(method='pearson',label.y.npc=0.95, show.legend=F) +
+  scale_x_continuous(limits=c(175, 625),
+                     breaks=c(200, 400, 600),) +
+  scale_y_continuous(limits=c(0, 1),
+                     breaks=c(0, 0.5, 1),
+                     labels=c('', 0.5, 1)) +
+  theme_bw() +
+  theme(aspect.ratio=1,
+        panel.grid=element_blank(),
+        panel.border=element_rect(size=1.1),
+        axis.text=element_text(size=12),
+        axis.title=element_text(size=12)) +
+  labs(x='rDNA copy number from WGS',
+       y='Methylation level around 7980')
+```
+
+
+
+```{r}
+adj_colours_2 <- c('Adjusted'='grey10', 'Non-Adjusted'='grey50')
+adj_colours_3 <- c('Adjusted'='grey10', 'Non-Adjusted'='white')
+
+mandinka_7980_adj_freqs_p <- mandinka_wgbs_rrna_meth_7980 %>%
+    mutate(aaf_adj=(
+      (aaf_wgbs*(1-meth_alt))/(aaf_wgbs*(1-meth_alt)+(1-aaf_wgbs)*(1-meth_ref)))) %>%
+    select(human, snp_pos, aaf_rrna, aaf_wgbs, aaf_adj) %>%
+    pivot_longer(c(aaf_wgbs, aaf_adj),
+                 names_to='type', names_prefix='aaf_', values_to='aaf') %>%
+    mutate(type=if_else(type=='adj', 'Adjusted', 'Non-Adjusted')) %>%
+  inner_join(mandinka_metadata_clusters, by=c('human')) %>%
+  ggplot(aes(x=aaf, y=aaf_rrna, fill=type,
+               shape=type, group=type, colour=type)) +
+  geom_segment(x=-Inf, xend=Inf, y=-Inf, yend=Inf,
+               colour='grey90', alpha=0.7) +
+  geom_point(alpha=0.7, stroke=1, size=2) +
+  stat_cor(method='pearson', label.x.npc=0,
+           label.y.npc=0.95, show.legend=F) +
+  scale_y_continuous('G frequency at 7980 in rRNA-Seq', lim=c(0, 1),
+                     breaks=c(0, 0.5, 1), labels=c('', 0.5, 1)) +
+  scale_x_continuous('G frequency at 7980 in WGBS', lim=c(0,1),
+                     breaks=c(0, 0.5, 1), labels=c('', 0.5, 1)) +
+  scale_colour_manual('Frequency', values=adj_colours_2) +
+  scale_fill_manual('Frequency', values=adj_colours_3) +
+  scale_shape_manual('Frequency',
+                     values=c('Adjusted'=21, 'Non-Adjusted'=22)) +
+  theme_bw() +
+  theme(aspect.ratio=1,
+        panel.grid=element_blank(),
+        panel.border=element_rect(size=1.1),
+        axis.title=element_text(size=12),
+        axis.text=element_text(size=12),
+        legend.position= c(0.55, 0.05),
+        legend.title=element_text(face='bold', size=8),
+        legend.text=element_text(size=8),
+        legend.spacing.x = unit(0.1, 'lines'),
+        legend.key.size = unit(0.6, 'lines'),
+        legend.direction = "horizontal",
+        legend.box.margin=margin(-7,-7,-7,-7),
+        legend.margin=margin(1, 2, 1, 2),
+        legend.background=element_rect(linetype="solid",
+                                       size=0.2, 
+                                       colour='grey10'))
+```
+
+```{r}
+mandinka_7980_adj_freqs_wgs_p <- mandinka_wgbs_rrna_meth_7980 %>%
+  mutate(aaf_adj=(
+    (aaf_wgs*(1-meth_alt))/(aaf_wgs*(1-meth_alt)+(1-aaf_wgs)*(1-meth_ref)))) %>%
+  select(human, snp_pos, aaf_rrna, aaf_wgs, aaf_adj) %>%
+  pivot_longer(c(aaf_wgs, aaf_adj),
+               names_to='type', names_prefix='aaf_', values_to='aaf') %>%
+  mutate(type=if_else(type=='adj', 'Adjusted', 'Non-Adjusted')) %>%
+  inner_join(mandinka_metadata_clusters, by=c('human')) %>%
+  ggplot(aes(x=aaf, y=aaf_rrna, fill=type,
+             shape=type, group=type, colour=type)) +
+  geom_segment(x=-Inf, xend=Inf, y=-Inf, yend=Inf,
+               colour='grey90', alpha=0.7) +
+  geom_point(alpha=0.7, stroke=1, size=2) +
+  stat_cor(method='pearson', label.x.npc=0,
+           label.y.npc=0.95, show.legend=F) +
+  scale_y_continuous('G frequency at 7980 in rRNA-Seq', lim=c(0, 1),
+                     breaks=c(0, 0.5, 1), labels=c('', 0.5, 1)) +
+  scale_x_continuous('G frequency at 7980 in WGS', lim=c(0,1),
+                     breaks=c(0, 0.5, 1), labels=c('', 0.5, 1)) +
+  scale_colour_manual('Frequency', values=adj_colours_2) +
+  scale_fill_manual('Frequency', values=adj_colours_3) +
+  scale_shape_manual('Frequency',
+                     values=c('Adjusted'=21, 'Non-Adjusted'=22)) +
+  theme_bw() +
+  theme(aspect.ratio=1,
+        panel.grid=element_blank(),
+        panel.border=element_rect(size=1.1),
+        axis.title=element_text(size=12),
+        axis.text=element_text(size=12),
+        legend.position= c(0.55, 0.05),
+        legend.title=element_text(face='bold', size=8),
+        legend.text=element_text(size=8),
+        legend.spacing.x = unit(0.1, 'lines'),
+        legend.key.size = unit(0.6, 'lines'),
+        legend.direction = "horizontal",
+        legend.box.margin=margin(-7,-7,-7,-7),
+        legend.margin=margin(1, 2, 1, 2),
+        legend.background=element_rect(linetype="solid",
+                                       size=0.2, 
+                                       colour='grey10'))
+```
+
+
+```{r}
+font_size <- 12
+
+mandinka_7980_meth_rrna_p <- mandinka_wgbs_rrna_meth_7980 %>%
+  ggplot(aes(y=aaf_rrna, x=meth_alt)) +
+  geom_point(alpha=0.7, stroke=1, size=2, shape=21, fill='grey20') +
+  stat_cor(method='pearson',
+           label.y.npc=0.95, label.x.npc=0.5, show.legend=F) +
+  geom_smooth(method='lm', color='black', alpha=0.1) +
+  scale_y_continuous('G frequency at 7980 in rRNA-Seq', lim=c(0, 1),
+                     breaks=c(0, 0.5, 1), labels=c('', 0.5, 1)) +
+  scale_x_continuous('Methylation level of 7980 G units',
+                     lim=c(0,1),
+                     breaks=c(0, 0.5, 1), labels=c('', 0.5, 1)) +
+  theme_bw() +
+  theme(aspect.ratio=1,
+        panel.grid=element_blank(),
+        panel.border=element_rect(size=1.1),
+        axis.title=element_text(size=12),
+        axis.text=element_text(size=12),
+        legend.position='bottom',
+        legend.title=element_text(face='bold', size=12),
+        legend.text=element_text(size=12),
+        legend.spacing.x = unit(0.1, 'lines'),
+        legend.box.margin=margin(-7,-7,-7,-7))
+```
+
+
+### Separate plots
+
+```{r}
+mandinka_meth_p <- mandinka_m413_meth_p + 
+                      mandinka_7980_meth_p
+```
+
+```{r}
+ggsave('../../figures/accepted/fig_5/A_mandinka_meth.pdf',
+       mandinka_meth_p, height=5, width=8, dpi=1200)
+```
+
+```{r}
+mandinka_cn_p <- mandinka_m413_cn_p +
+                      mandinka_7980_cn_p
+```
+
+```{r}
+mandinka_fd <- '../../figures/publication/fig_5/'
+dir.create(mandinka_fd, showWarnings = FALSE, recursive = T)
+ggsave('../../figures/publication/fig_5/mandinka_cn.pdf',
+       mandinka_cn_p, height=5, width=8, dpi=1200)
+```
+
+```{r}
+mandinka_rna_p <- mandinka_7980_meth_rrna_p +
+                      mandinka_7980_adj_freqs_wgs_p
+```
+
+```{r}
+fig5_fd <- '../../figures/publication/fig_5/'
+dir.create(mandinka_fd, showWarnings = FALSE, recursive = T)
+ggsave('../../figures/publication/fig_5/mandinka_rna.pdf',
+       mandinka_rna_p, height=5, width=8, dpi=1200)
+```
+
+## Supplementary
+
+### Copy number estimates
+
+
+```{r}
+hall_1000g_cn <- read_tsv(
+  paste0(
+    '~/OneDrive - Queen Mary, University of London/comp_bio/human_rdna/',
+    'human_rdna_epivariation_paper/data/1000_genomes/cn/',
+    'hall_1000_genomes_cn.tsv'),
+  col_types=cols())
+
+our_cn <- read_csv(
+  paste0(
+    '~/OneDrive - Queen Mary, University of London/comp_bio/human_rdna/',
+    'human_rdna_epivariation_paper/data/mandinka/metadata/depths_cn.csv'),
+  col_types=cols())
+```
+
+```{r}
+lcl_cn_comparison_p <- our_cn %>%
+    mutate(sample=paste0('HG0', sample)) %>%
+    inner_join(hall_1000g_cn, by=c('sample'='Sample')) %>%
+    select(sample, ours=cn_18s, hall=HC.18S.CN) %>%
+    mutate(ours=2*ours) %>%
+    ggplot(aes(x=ours, y=hall)) +
+    geom_point(shape=21, size=3, fill='grey20', alpha=0.6, stroke=1) +
+    geom_smooth(method='lm', colour='black', alpha=0.1) +
+    stat_cor(method='p') +
+    scale_x_continuous(limits=c(0, 650),
+                       breaks=c(0, 300, 600),
+                       labels=c('', 300, 600)) +
+    scale_y_continuous(limits=c(0, 650),
+                       breaks=c(0, 300, 600),
+                       labels=c('', 300, 600)) +
+    labs(x='Our 18S CN estimate', y='Hall et al 18S CN estimate') +
+    theme_bw() +
+    theme(aspect.ratio=1,
+          panel.grid=element_blank(),
+          panel.border=element_rect(size=1.1),
+          axis.text=element_text(size=12),
+          axis.title=element_text(size=14))
+```
+
+```{r}
+fig5_fd <- '../../figures/publication/fig_5/'
+dir.create(mandinka_fd, showWarnings = FALSE, recursive = T)
+ggsave('../../figures/publication/fig_5/mandinka_cn_comparison.pdf',
+       lcl_cn_comparison_p, height=4, width=4, dpi=1200)
+```
+
+### WGS vs WGBS allele frequencies
+
+```{r}
+mandinka_snps_many %>%
+  filter(dp > 100) %>%
+  rename(human=sample, aaf_wgs=af) %>%
+  inner_join(read_snps(fd=mandinka_fd, loop_size=2120, the_data_fd='./') %>%
+                 filter(sample %in% mandinka_wgs_rrna_meth$sample) %>%
+                 inner_join(mandinka_metadata_clusters, by=c('sample')),
+             by=c('human', 'snp_pos', 'ref', 'alt')) %>%
+  mutate(aaf_wgbs=1-ref_prop_obs) %>%
+  filter(snp_pos==7980) %>%
+  select(human, aaf_wgs, aaf_wgbs) %>%
+  ggplot(aes(x=aaf_wgs, y=aaf_wgbs)) +
+  geom_point(alpha=0.7, shape=21, fill='grey20', stroke=1) +
+  stat_cor(method='pearson', label.x.npc=0.05,
+           label.y.npc=0.95, show.legend=F) +
+  theme_bw() +
+  scale_y_continuous('WGBS', lim=c(0, 1),
+                     breaks=c(0, 0.5, 1), labels=c('', 0.5, 1)) +
+  scale_x_continuous('WGS', lim=c(0,1),
+                     breaks=c(0, 0.5, 1), labels=c('', 0.5, 1)) +
+  coord_fixed() +
+  theme_bw() +
+  theme(panel.grid=element_blank(),
+        panel.border=element_rect(size=1.1),
+        axis.title=element_text(size=font_size+2),
+        axis.text=element_text(size=font_size),
+        legend.position='bottom',
+        legend.title=element_text(face='bold', size=font_size),
+        legend.text=element_text(size=font_size),
+        legend.spacing.x = unit(0.1, 'lines'),
+        legend.box.margin=margin(-7,-7,-7,-7))
+```
+
+## Ultra-long
+
+```{r}
+ul_variant_calls <- read_tsv(
+  paste0(
+    '../../../../human_rdna/human_rdna_epivariation_paper/',
+    'data/nanopore/ul/per_read_variant_calls.txt'),
+  col_types=cols()) %>%
+  mutate(pos=pos+1,
+         unit_num=as.integer( ( pos - 1) / 44838) + 1,
+         pos_ref=adjust_pos((pos %% 44838), 2120)) %>%
+  group_by(read_id, strand, ref_log_prob, alt_log_prob,
+           ref_seq, alt_seq, var_id, pos_ref) %>%
+  summarise(unit_num=min(unit_num), .groups='drop') %>%
+  ungroup() %>%
+  select(read_id, pos_ref, unit_num, ref=ref_seq, ref_prob=ref_log_prob,
+         alt=alt_seq, alt_prob=alt_log_prob) %>%
+  mutate(ref_prob=exp(ref_prob), alt_prob=exp(alt_prob)) %>%
+  pivot_longer(c(ref_prob, alt_prob), values_to='prob', names_to='dominant') %>%
+  filter(prob>0.9) %>%
+  group_by(read_id, pos_ref, unit_num, ref, alt) %>%
+  filter(n()==1) %>%
+  mutate(dominant=gsub('_prob', '', dominant),
+         allele=if_else(dominant=="ref", ref, alt)) %>%
+  ungroup() %>%
+  select(read_id, unit_num, pos_ref, allele) %>%
+  distinct() %>%
+  group_by(read_id, unit_num) %>%
+  filter(n_distinct(pos_ref)==n()) %>%
+  group_by(pos_ref) %>%
+  filter(n_distinct(allele) > 1) %>%
+  mutate(allele_num=dense_rank(allele)) %>%
+  ungroup()
+```
+
+```{r}
+cols <- c("1_1"=0, "1_2"=0, "1_3"=0,
+          "2_1"=0, "2_2"=0, "2_3"=0,
+          "3_1"=0, "3_2"=0, "3_3"=0)
+
+ul_linkage_ul <- ul_variant_calls %>%
+  inner_join(ul_variant_calls,
+             by=c('read_id', 'unit_num'),
+             suffix=c('_1', '_2')) %>%
+  filter(pos_ref_1 < pos_ref_2)%>%
+  group_by(pos_ref_1, allele_num_1,
+           pos_ref_2, allele_num_2) %>%
+  summarise(num_reads=n_distinct(read_id), .groups='drop') %>%
+  mutate(haplotype=paste(allele_num_1, allele_num_2, sep='_')) %>%
+  pivot_wider(-c(allele_num_1, allele_num_2),
+              names_from='haplotype',
+              values_from='num_reads',
+              values_fill=0) %>%
+  add_column(!!!cols[!names(cols) %in% names(.)]) %>%
+  rowwise() %>%
+  mutate(
+    broom::tidy(
+      fisher.test(
+        matrix(c(`1_1`, `1_2`, `1_3`,
+                 `2_1`, `2_2`, `2_3`,
+                 `3_1`, `3_2`, `3_3`),
+               byrow=T, nrow=3)))) %>%
+  ungroup()
+```
+
+```{r}
+ul_potential_haplotypes <- ul_variant_calls %>%
+  group_by(read_id, unit_num) %>%
+  filter(pos_ref %in% c(-348, 6521, 7980, 12986)) %>%
+  filter(n_distinct(pos_ref)==4) %>%
+  arrange(read_id, unit_num, pos_ref) %>%
+  summarise(haplotype=paste0(allele, collapse=''))
+```
+
+```{r}
+ul_potential_haplotypes_p <- ul_potential_haplotypes %>%
+  ggplot(aes(x=haplotype)) +
+  geom_bar() +
+  theme_bw() +
+  scale_y_continuous(limits=c(0, 50),
+                     breaks=c(0, 25, 50),
+                     labels=c('', 25, 50)) +
+  labs(x='', y='Number of rDNA units') +
+  theme(panel.grid=element_blank(),
+        panel.border=element_rect(size=1.1),
+        axis.text=element_text(size=12),
+        axis.title=element_text(size=14))
+```
+
+```{r}
+fig_5_fd <- '../../figures/publication/fig_5/'
+dir.create(fig_5_fd, showWarnings = FALSE, recursive = T)
+ggsave(paste0(fig_5_fd,'/ul_potential_haplotypes.pdf'),
+       ul_potential_haplotypes_p, height=3, width=8, dpi=1200)
+```
+
+```{r}
+haplotypes_ul_not_cleaned <- ul_variant_calls %>%
+  inner_join(ul_potential_haplotypes,
+             by=c('read_id', 'unit_num')) %>%
+  group_by(pos_ref, haplotype) %>%
+  mutate(num_haplo=n()) %>%
+  group_by(pos_ref, allele, haplotype) %>%
+  summarise(num_allele=n(),
+            num_haplo=unique(num_haplo),
+            .groups='drop') %>%
+  mutate(freq=num_allele/num_haplo) %>%
+  filter(pos_ref > -1000) %>%
+  filter(num_haplo >= 5) %>%
+  group_by(pos_ref) %>%
+  filter(n_distinct(haplotype)==4) %>%
+  ungroup()
+```
+
+```{r}
+ul_putative_haplotypes <- haplotypes_ul_not_cleaned %>% 
+  pull(haplotype) %>% unique()
+```
+
+```{r}
+pos_to_keep_ul <- haplotypes_ul_not_cleaned %>%
+  filter(freq > 0.1) %>%
+  group_by(pos_ref) %>%
+  filter(n_distinct(allele) > 1) %>%
+  pull(pos_ref) %>%
+  unique()
+```
+
+```{r}
+haplotypes_ul_not_cleaned_p <- haplotypes_ul_not_cleaned %>%
+  filter(pos_ref %in% pos_to_keep_ul) %>%
+  bind_rows(haplotypes_ul_not_cleaned %>%
+              select(haplotype) %>% distinct() %>%
+              mutate(pos_ref=0)) %>%
+  mutate(pos_ref=as.factor(pos_ref),
+         pos_ref=fct_recode(pos_ref, TSS='0')) %>%
+  ggplot() +
+  geom_col(aes(x=pos_ref, y=freq, fill=allele)) +
+  geom_vline(xintercept='TSS', alpha=0.3) +
+  theme_bw() +
+  facet_grid(rows=vars(haplotype)) +
+  labs(x='', y='Allele Frequency') +
+  scale_fill_manual(name='Allele', values=allele_colours_cb) +
+  scale_y_continuous(breaks=c(0.5, 1)) +
+  theme(axis.text.x=element_text(angle=90, hjust=1, vjust=0.5),
+        axis.text.y=element_text(size=12),
+        axis.title=element_text(size=14),
+        panel.grid = element_blank(),
+        panel.border=element_rect(size=1.1),
+        strip.background=element_blank(),
+        strip.text.y=element_text(angle=0, hjust=0, size=12),
+        legend.position='bottom',
+        legend.title=element_text(size=12, face='bold'),
+        legend.text=element_text(size=12),
+        legend.margin=margin(t=-20, r=0, b=0, l=0),
+        panel.spacing=unit(0.2, 'lines'))
+```
+
+```{r}
+fig_5_fd <- '../../figures/publication/fig_5/'
+dir.create(fig_5_fd, showWarnings = FALSE, recursive = T)
+ggsave(paste0(fig_5_fd,'/ul_potential_haplotypes_alleles.pdf'),
+       haplotypes_ul_not_cleaned_p, height=5, width=10, dpi=1200)
+```
