@@ -1,0 +1,37 @@
+#!/bin/bash
+#$ -cwd
+#$ -j y
+#$ -l h_rt=1:0:0
+#$ -l h_vmem=4G
+#$ -pe smp 8
+#$ -t 1-24
+#$ -o logs/
+
+ix=$SGE_TASK_ID
+sample=$(sed -n -e "$SGE_TASK_ID p" /data/Blizard-Rakyan/Selin/projects/MEF_SD_DEC/RRBS/Data_Novogene/X204SC22010869-Z01-F001/raw_data/libname.txt)
+echo "${sample}: Started"
+ifd="/data/Blizard-Rakyan/Selin/projects/MEF_SD_DEC/RRBS/Data_Novogene/X204SC22010869-Z01-F001/raw_data/${sample}/"
+fqc_ofd="/data/Blizard-Rakyan/Selin/projects/MEF_SD_DEC/RRBS/Data_Novogene/X204SC22010869-Z01-F001/fastqc_trimmed/${sample}/"
+ofd="/data/Blizard-Rakyan/Selin/projects/MEF_SD_DEC/RRBS/Data_Novogene/X204SC22010869-Z01-F001/trimmed/${sample}/"
+
+
+R1=$(ls ${ifd}*_1.fq.gz) 
+R2=$(ls ${ifd}*_2.fq.gz) 
+
+
+mkdir -p $fqc_ofd
+mkdir -p $ofd
+
+echo $R1
+
+module load trimgalore
+module load pigz
+
+trim_galore \
+--fastqc_args "-o $fqc_ofd" \
+--rrbs \
+--paired \
+--cores ${NSLOTS} \
+--output_dir ${ofd} \
+${R1} ${R2}
+echo "${sample}: Finished"
