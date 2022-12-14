@@ -1,0 +1,42 @@
+#!/bin/bash
+#$ -cwd
+#$ -j y
+#$ -pe smp 8
+#$ -l h_rt=240:0:0
+#$ -l h_vmem=2G
+#$ -t 1-33
+#$ -tc 5
+#$ -w w
+#$ -o logs/
+
+
+samples=($(ls -d /data/Blizard-Rakyan/Selin/projects/mouse_strains/WGBS/data/bam_rdna/*/))
+ix=$(( $SGE_TASK_ID-1 ))
+path=${samples[$ix]}
+sample=$(basename $path)
+
+echo "${sample}: Started"
+
+ifn="${path}${sample}.bam"
+
+data_fd="../../data/"
+ofd="${data_fd}bam_rdna_dedup/${sample}/"
+mkdir -p $ofd
+
+tfn="${ofd}${sample}.bam"
+
+module load -s samtools
+
+samtools sort -n -@ $NSLOTS -o ${tfn} $ifn
+
+module load -s bismark
+
+deduplicate_bismark -p \
+    --output_dir $ofd \
+    -o ${sample} $tfn
+
+mv ${ofd}*.bam ${ofd}${sample}.bam
+
+rm $tfn
+
+echo "${sample}: Finished"

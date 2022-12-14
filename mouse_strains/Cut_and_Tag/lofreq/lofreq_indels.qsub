@@ -1,0 +1,75 @@
+#!/bin/bash
+#$ -cwd
+#$ -j y
+#$ -l h_rt=1:0:0
+#$ -l h_vmem=4G
+#$ -pe smp 4
+#$ -t 1-12
+#$ -o logs/
+
+samples=($(ls -d ../../data/bam_rdna/*/))
+ix=$(( $SGE_TASK_ID-1 ))
+path=${samples[$ix]}
+
+sample=`basename $path`
+
+echo "${sample}: Started"
+
+rfd="/data/Blizard-Rakyan/Rakyan_Lab_Files/Genomes/"
+rfd="${rfd}Mouse/WG/MM10/rDNA/WG_rDNA/"
+rfn="${rfd}mm10.rDNA.fa"
+
+bfd="../../data/bam_lofreq/${sample}/"
+rm -rf $bfd && mkdir -p $bfd
+tbam="${bfd}tmp.bam"
+qbam="${bfd}${sample}.bam"
+bam=$(ls ${path}*.bam)
+
+module load lofreq/2.1.5
+lofreq alnqual -b $bam $rfn > $tbam
+lofreq indelqual --dindel -f $rfn -o $qbam $tbam
+lofreq index $qbam
+
+rm $tbam
+
+ofd="../../data/lofreq_indels/${sample}/"
+rm -rf $ofd && mkdir -p $ofd
+
+lofreq call --call-indels \
+    -f $rfn \
+    -o ${ofd}${sample}.many.vcf \
+    -r BK000964.3_looped_3008:1-16411 \
+    -a 1 \
+    -b 1 \
+    -B \
+    --no-default-filter \
+    --use-orphan \
+    --force-overwrite \
+    $qbam
+
+lofreq call --call-indels \
+    -f $rfn \
+    -o ${ofd}${sample}.unfilt.vcf \
+    -r BK000964.3_looped_3008:1-16411 \
+    --force-overwrite \
+    $qbam
+
+lofreq filter --only-snvs \
+    -i ${ofd}${sample}.unfilt.vcf \
+    -o ${ofd}${sample}.snps.vcf \
+    -v 100 \
+    -a 0.05
+
+lofreq filter --only-snvs \
+    -i ${ofd}${sample}.unfilt.vcf \
+    -o ${ofd}${sample}.snps_hc.vcf \
+    -v 250 \
+    -a 0.1
+
+lofreq filter --only-indels \
+    -i ${ofd}${sample}.unfilt.vcf \
+    -o ${ofd}${sample}.indels.vcf \
+    -v 100 \
+    -a 0.05
+
+echo "${sample}: Finished"

@@ -1,0 +1,37 @@
+#!/bin/bash
+#$ -cwd
+#$ -j y
+#$ -pe smp 8
+#$ -l h_rt=1:0:0
+#$ -l h_vmem=8G
+#$ -t 1-12
+#$ -w w
+#$ -N bam
+#$ -o logs/
+
+samples=($(ls -d ../../data/bt2/*/))
+ix=$(( $SGE_TASK_ID-1 ))
+path=${samples[$ix]}
+sample=$(basename $path)
+
+echo "${sample}: Started"
+
+ofd="../../data/bt2/${sample}"
+cd $ofd
+
+ls *.bai  >/dev/null 2>&1 && 
+    echo "${sample}: Previously indexed" &&
+    exit
+
+fn=$(ls | grep ".bam")
+ofn="${fn}.sorted"
+
+echo "${sample}: Sorting"
+module load -s samtools
+( samtools sort -o ${ofn} -@ $NSLOTS $fn &&
+    mv $ofn $fn &&
+    echo "${sample}: Sorted" &&
+    samtools index $fn &&
+    echo "${sample}: Indexed" &&
+    echo "${sample}: Finished" ) ||
+    echo "${sample}: Error"

@@ -1,0 +1,25 @@
+#!/bin/bash
+#$ -cwd
+#$ -j y
+#$ -pe smp 8
+#$ -l h_rt=1:0:0
+#$ -l h_vmem=8G
+#$ -t 1-33
+#$ -o logs/
+
+samples=($(ls -d ../../data/bismark_exons/*/))
+ix=$(( $SGE_TASK_ID-1 ))
+path=${samples[$ix]}
+sample=$(basename $path)
+
+echo "${sample}: Started"
+
+fn="${path}$(ls $path | grep ".bam")"
+ofn="${fn}.sorted"
+
+module load samtools/1.10
+samtools sort -o ${ofn} -@ $NSLOTS $fn && mv $ofn $fn
+
+samtools index $fn
+
+echo "${sample}: Finished"

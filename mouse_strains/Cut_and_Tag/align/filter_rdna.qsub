@@ -1,0 +1,32 @@
+#!/bin/bash
+#$ -cwd
+#$ -j y
+#$ -l h_rt=1:0:0
+#$ -l h_vmem=4G
+#$ -pe smp 8
+#$ -t 1-12
+#$ -N rdna
+#$ -o logs/
+
+samples=($(ls -d ../../data/bt2/*/))
+ix=$(( $SGE_TASK_ID-1 ))
+path=${samples[$ix]}
+
+sample=`basename $path`
+region="BK000964.3_looped_3008"
+
+echo "${sample}: Started"
+
+module load -s samtools/1.10 bcftools/1.10.2
+
+ofd="../../data/bam_rdna/${sample}/"
+mkdir -p $ofd
+
+bams=$(ls ${path}*.bam)
+
+obam=${ofd}${sample}.bam
+
+samtools merge -R ${region} -@ $NSLOTS $obam $bams
+samtools index ${obam}
+
+echo "${sample}: Finished"

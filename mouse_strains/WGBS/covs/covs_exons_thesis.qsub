@@ -1,0 +1,24 @@
+#!/bin/bash
+#$ -cwd
+#$ -j y
+#$ -l h_rt=1:0:0
+#$ -l h_vmem=8G
+#$ -pe smp 4
+#$ -t 2-33
+#$ -o logs/
+
+samples=($(ls -d /data/Blizard-Rakyan/Selin/projects/mouse_strains/WGBS/data/bismark_exons/*/))
+ix=$(( $SGE_TASK_ID-1 ))
+
+mkdir -p /data/Blizard-Rakyan/Selin/projects/mouse_strains/WGBS_thesis/data/covs_exons/
+
+path=${samples[$ix]}
+
+sample=`basename $path`
+echo "${sample}: Started"
+
+module load -s samtools/1.10
+
+samtools depth -d 0 ${path}/*.bam > \
+    /data/Blizard-Rakyan/Selin/projects/mouse_strains/WGBS_thesis/data/covs_exons/${sample}.cov && \
+    echo "${sample}: Finished successfully"

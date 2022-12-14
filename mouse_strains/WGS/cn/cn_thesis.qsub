@@ -1,0 +1,16 @@
+#!/bin/bash
+#$ -cwd
+#$ -j y
+#$ -l h_rt=1:0:0
+#$ -l h_vmem=8G
+#$ -pe smp 4
+#$ -o logs/
+
+echo "Started"
+
+module load -s gcc
+module load -s R/4.0.2
+
+Rscript cn_thesis.R
+
+echo "Finished"

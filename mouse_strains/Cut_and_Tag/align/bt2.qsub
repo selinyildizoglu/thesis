@@ -1,0 +1,38 @@
+#!/bin/bash
+#$ -cwd
+#$ -j y
+#$ -pe smp 16
+#$ -l h_rt=1:0:0
+#$ -l h_vmem=1G
+#$ -t 2-12
+#$ -o logs/
+
+samples=($(ls -d ../../data/trimmed/*/))
+ix=$(( $SGE_TASK_ID-1 ))
+path=${samples[$ix]}
+sample=$(basename $path)
+
+echo "${sample}: Started"
+
+gfd="/data/Blizard-Rakyan/Rakyan_Lab_Files/Genomes/Mouse/WG/MM10/rDNA/WG_rDNA/"
+
+ofd="../../data/bt2/${sample}"
+mkdir -p $ofd && cd $ofd
+
+ifd="../../trimmed/${sample}/"
+
+R1=$( find ${ifd} | grep "_1_val_1.fq.gz" )
+R2="${R1/_1_val_1/_2_val_2}"
+
+module load -s bowtie2
+module load -s samtools
+
+bowtie2 -x ${gfd}mm10.rDNA \
+    --no-unal \
+    -p $NSLOTS \
+    -1 $R1 -2 $R2 | \
+    samtools view -bS \
+    -o ${sample}.bam \
+    -@ $NSLOTS -
+
+echo "${sample}: Finished"

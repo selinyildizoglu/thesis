@@ -1,0 +1,24 @@
+#!/bin/bash
+#$ -cwd
+#$ -j y
+#$ -l h_rt=1:0:0
+#$ -l h_vmem=8G
+#$ -pe smp 4
+#$ -t 1-12
+#$ -N covs_hoxa
+#$ -o logs/
+
+samples=($(ls -d ../../data/bt2/*/))
+ix=$(( $SGE_TASK_ID-1 ))
+
+path=${samples[$ix]}
+
+sample=`basename $path`
+echo "${sample}: Started"
+
+mkdir -p ../../data/covs_hoxa/
+module load -s samtools/1.10
+
+samtools depth -a -d 0 -r "chr6:52,045,918-52,420,217" ${path}/*.bam > \
+    ../../data/covs_hoxa/${sample}.cov && \
+    echo "${sample}: Finished successfully"

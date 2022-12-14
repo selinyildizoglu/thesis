@@ -1,0 +1,40 @@
+#!/bin/bash
+#$ -cwd
+#$ -j y
+#$ -pe smp 8
+#$ -l h_rt=1:0:0
+#$ -l h_vmem=4G
+#$ -t 17-33
+#$ -o logs/
+
+samples=($(ls -d /data/Blizard-Rakyan/Selin/projects/mouse_strains/WGS/data/trimmed/*/))
+ix=$(( $SGE_TASK_ID-1 ))
+path=${samples[$ix]}
+sample=$(basename $path)
+
+echo "${sample}: Started"
+
+ofd="../../data/bt2_exons/${sample}"
+gfd="/data/Blizard-Rakyan/Rakyan_Lab_Files/Genomes/Mouse/WG/MM10/Original/Exome/filtered/"
+
+rm -rf $ofd 
+mkdir -p $ofd && cd $ofd
+
+ifd="../../trimmed/${sample}/*"
+R1=`ls -d ${ifd} | grep "_1.fq.gz$"`
+R2=`ls -d ${ifd} | grep "_2.fq.gz$"`
+
+module load -s bowtie2
+module load -s samtools
+
+ofn=`basename $(echo $R1 | cut -d' ' -f1) "_1_val_1.fq.gz"`
+
+bowtie2 -x ${gfd}exons_filtered \
+    --no-unal \
+    -p $NSLOTS \
+    -1 $R1 -2 $R2 | \
+    samtools view -bS \
+    -o ${ofn}.bam \
+    -@ $NSLOTS -
+
+echo "${sample}: Finished"

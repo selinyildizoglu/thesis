@@ -1,0 +1,36 @@
+#!/bin/bash
+#$ -cwd
+#$ -j y
+#$ -pe smp 16
+#$ -l h_rt=1:0:0
+#$ -l h_vmem=1G
+#$ -t 2-12
+#$ -w w
+#$ -o logs/
+
+samples=($(ls -d /data/Blizard-Rakyan/Selin/projects/mouse_strains/Cut_and_Tag/data/fq/*/))
+ix=$(( $SGE_TASK_ID-1 ))
+path=${samples[$ix]}
+sample=$(basename $path)
+
+echo "${sample}: Started"
+
+ofd="/data/Blizard-Rakyan/Selin/projects/mouse_strains/Cut_and_Tag_thesis/data/trimmed/${sample}"
+mkdir -p $ofd
+
+R1=$(find /data/Blizard-Rakyan/Selin/projects/mouse_strains/Cut_and_Tag/data/fq/${sample}/ | grep "_1.fq.gz")
+echo $R1
+R2="${R1/_1.fq/_2.fq}"
+
+module load -s trimgalore
+module load -s pigz 
+
+trim_galore \
+--fastqc \
+--paired \
+--cores $(( $NSLOTS / 4 )) \
+-o $ofd \
+$R1 \
+$R2 
+
+echo "${sample}: Finished"

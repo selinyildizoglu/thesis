@@ -1,0 +1,24 @@
+#!/bin/bash
+#$ -cwd
+#$ -j y
+#$ -l h_rt=1:0:0
+#$ -l h_vmem=8G
+#$ -pe smp 4
+#$ -t 1-12
+#$ -N covs
+#$ -o logs/
+
+samples=($(ls -d ../../data/bam_rdna/*/))
+ix=$(( $SGE_TASK_ID-1 ))
+
+path=${samples[$ix]}
+
+sample=`basename $path`
+echo "${sample}: Started"
+
+mkdir -p ../../data/covs_rdna/
+module load -s samtools/1.10
+
+samtools depth -a -d 0 -r "BK000964.3_looped_3008" ${path}/*.bam > \
+    ../../data/covs_rdna/${sample}.cov && \
+    echo "${sample}: Finished successfully"

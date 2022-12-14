@@ -1,0 +1,24 @@
+#!/bin/bash
+#$ -cwd
+#$ -j y
+#$ -l h_rt=1:0:0
+#$ -l h_vmem=8G
+#$ -pe smp 4
+#$ -t 1-33
+#$ -o logs/
+
+samples=($(ls -d ../../data/bismark_exons/*/))
+ix=$(( $SGE_TASK_ID-1 ))
+
+mkdir -p ../../data/covs_exons_all/
+
+path=${samples[$ix]}
+
+sample=`basename $path`
+echo "${sample}: Started"
+
+module load -s samtools/1.10
+
+samtools depth -a -d 10000000000 ${path}/*.bam > \
+    ../../data/covs_exons_all/${sample}.cov && \
+    echo "${sample}: Finished successfully"
