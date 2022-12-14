@@ -1,0 +1,26 @@
+#!/bin/bash
+#$ -cwd
+#$ -j y
+#$ -l h_rt=1:0:0
+#$ -l h_vmem=8G
+#$ -pe smp 4
+#$ -t 1-6
+#$ -o logs/
+
+samples=($(ls -d /data/Blizard-Rakyan/Selin/projects/MEF_rRNA/RNA-Seq/data/bam_rdna/*/))
+ix=$(( $SGE_TASK_ID-1 ))
+
+
+mkdir -p /data/Blizard-Rakyan/Selin/projects/MEF_rRNA/RNA-Seq/data/covs_rrna/
+
+path=${samples[$ix]}
+
+sample=`basename $path`
+echo "${sample}: Started"
+
+module load -s samtools
+
+samtools depth -a -r "BK000964.3_looped_3008" ${path}/*.bam > \
+    /data/Blizard-Rakyan/Selin/projects/MEF_rRNA/RNA-Seq/data/covs_rrna/${sample}.cov && \
+    echo "${sample}: Finished successfully"
+

@@ -1,0 +1,32 @@
+#!/bin/bash
+#$ -cwd
+#$ -j y
+#$ -l h_rt=1:0:0
+#$ -l h_vmem=4G
+#$ -pe smp 8
+#$ -t 1-33
+#$ -o logs/
+
+ix=$SGE_TASK_ID
+sample=$(sed -n -e "$SGE_TASK_ID p" ../../src/samples.txt)
+
+ifd="../../data/fq/"
+fqc_ofd="../../data/fastqc_trimmed/${sample}"
+ofd="../../data/trimmed/${sample}"
+
+R1=`find "${ifd}${sample}" | grep "_1.fq.gz"`
+R2=`find "${ifd}${sample}" | grep "_2.fq.gz"`
+
+mkdir -p $fqc_ofd
+mkdir -p $ofd
+
+module load trimgalore
+module load pigz
+
+trim_galore \
+    --fastqc_args "-o $fqc_ofd" \
+    --paired \
+    --cores ${NSLOTS} \
+    --output_dir ${ofd} \
+    ${R1} ${R2}
+

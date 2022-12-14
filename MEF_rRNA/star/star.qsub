@@ -1,0 +1,44 @@
+#!/bin/bash
+#$ -cwd
+#$ -j y
+#$ -pe smp 8
+#$ -l h_rt=1:0:0
+#$ -l h_vmem=4G
+#$ -t 34-36
+#$ -tc 5
+#$ -w w
+#$ -o logs/
+
+samples=($(ls -d ../../data/trimmed/*/))
+ix=$(( $SGE_TASK_ID-1 ))
+path=${samples[$ix]}
+sample=$(basename $path)
+
+echo "${sample}: Started"
+
+ofd="/data/Blizard-Rakyan/Selin/projects/mouse_strains/RNA-Seq/data/star/${sample}"
+gfd="/data/Blizard-Rakyan/Rakyan_Lab_Files/Genomes/Mouse/WG/MM10/rDNA/WG_rDNA/STAR/"
+
+rm -rf $ofd && mkdir -p $ofd && cd $ofd
+
+ifd="${rfd}${sample}"
+
+R1=`find "../../trimmed/${sample}" | grep "_1.fq.gz$"`
+R2=`find "../../trimmed/${sample}" | grep "_2.fq.gz$"`
+
+R=$(basename $R1 _1_val_1.fq.qz)
+
+module load -s pigz
+module load -s samtools
+module load -s star
+
+STAR --outSAMstrandField intronMotif \
+    --quantMode GeneCounts \
+    --outSAMtype BAM SortedByCoordinate \
+    --readFilesCommand zcat \
+    --genomeDir ${gfd} \
+    --readFilesIn $R1 $R2 \
+    --outFileNamePrefix "${R}_" \
+    --runThreadN ${NSLOTS}
+
+echo "${sample}: Finished"
